@@ -91,8 +91,8 @@ export class TelegramService {
   private handleBotEngineMessage(msg: BotMessage): void {
     if (!this.notificationsEnabled || !this.botToken || !this.chatId) return;
 
-    // Only forward signals for the currently selected active symbol & timeframe
-    if (msg.type === 'SIGNAL') {
+    // Only forward signals & analysis for the currently selected active symbol & timeframe
+    if (msg.type === 'SIGNAL' || msg.type === 'ANALYSIS') {
       const activeSymbol = botEngine.getActiveSymbol();
       const activeTimeframe = botEngine.getActiveTimeframe();
 

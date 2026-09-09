@@ -90,6 +90,25 @@ export const api = {
     const res = await axios.post<{ success: boolean; message: string; data: any }>(`${API_BASE}/bot/telegram-config`, { botToken, chatId });
     return res.data;
   },
+  getBotStatus: async () => {
+    const res = await axios.get<{
+      success: boolean;
+      data: {
+        botActive: boolean;
+        swingAlertsActive: boolean;
+        analysisAlertsActive: boolean;
+        activeSymbol: TradingSymbol;
+        activeTimeframe: Timeframe;
+        telegramNotificationsEnabled: boolean;
+        telegramConfigured: boolean;
+      };
+    }>(`${API_BASE}/bot/status`);
+    return res.data.data;
+  },
+  toggleAnalysisAlerts: async (active?: boolean) => {
+    const res = await axios.post<{ success: boolean; analysisActive: boolean; message: string }>(`${API_BASE}/bot/analysis-toggle`, { active });
+    return res.data.analysisActive;
+  },
 
   // Webhook
   getWebhookConfig: async () => {

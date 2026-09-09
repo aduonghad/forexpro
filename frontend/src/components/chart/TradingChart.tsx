@@ -1,7 +1,116 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, LineData } from 'lightweight-charts';
+import {
+  createChart,
+  IChartApi,
+  ISeriesApi,
+  CandlestickData,
+  Time,
+  LineData,
+  ISeriesPrimitive,
+  ISeriesPrimitiveAxisView
+} from 'lightweight-charts';
 import { TradingSymbol, Timeframe, Candle, Order, IndicatorSnapshot } from '../../types';
 import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock } from 'lucide-react';
+
+class CountdownPriceAxisView implements ISeriesPrimitiveAxisView {
+  _coordinate: number = -10000;
+  _text: string = '';
+  _visible: boolean = false;
+  _color: string = '#10b981';
+
+  coordinate(): number {
+    return -10000;
+  }
+
+  fixedCoordinate(): number | undefined {
+    return this._visible ? this._coordinate : undefined;
+  }
+
+  text(): string {
+    return this._text;
+  }
+
+  textColor(): string {
+    return '#ffffff';
+  }
+
+  backColor(): string {
+    return this._color;
+  }
+
+  visible(): boolean {
+    return this._visible;
+  }
+
+  tickVisible(): boolean {
+    return false;
+  }
+}
+
+class CountdownPrimitive implements ISeriesPrimitive<Time> {
+  _view = new CountdownPriceAxisView();
+  _views: readonly ISeriesPrimitiveAxisView[] = [this._view];
+  _series: ISeriesApi<'Candlestick'> | null = null;
+  _requestUpdate: (() => void) | null = null;
+  _lastPrice: number | null = null;
+  _lastTimeLeft: string = '';
+  _color: string = '#10b981';
+
+  attached(param: any) {
+    this._series = param.series;
+    this._requestUpdate = param.requestUpdate;
+  }
+
+  detached() {
+    this._series = null;
+    this._requestUpdate = null;
+  }
+
+  update(timeLeft: string, price: number, color: string) {
+    this._lastTimeLeft = timeLeft;
+    this._lastPrice = price;
+    this._color = color;
+    this.refresh();
+  }
+
+  refresh() {
+    if (!this._series || this._lastPrice === null) return;
+    const coord = this._series.priceToCoordinate(this._lastPrice);
+    if (coord === null) {
+      this._view._visible = false;
+    } else {
+      this._view._visible = true;
+      // Nhãn giá nến cao 18px (từ coord - 9 đến coord + 9).
+      // Nhãn countdown (cao ~20px) đặt fixedCoordinate tại coord + 19 để nằm ngay sát dưới đáy của giá
+      this._view._coordinate = Math.round(coord + 19);
+
+      let priceStr = '';
+      try {
+        priceStr = this._series.priceFormatter().format(this._lastPrice);
+      } catch {
+        priceStr = this._lastPrice.toFixed(2);
+      }
+
+      // Đệm khoảng trắng không ngắt (\u00A0) để chiều dài nền bằng đúng với nhãn giá mua bán
+      const diff = Math.max(0, priceStr.length - this._lastTimeLeft.length);
+      const leftPad = Math.floor(diff / 2);
+      const rightPad = diff - leftPad;
+      this._view._text = '\u00A0'.repeat(leftPad) + this._lastTimeLeft + '\u00A0'.repeat(rightPad);
+      this._view._color = this._color;
+    }
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+
+  updateAllViews() {
+    this.refresh();
+  }
+
+  priceAxisViews() {
+    return this._views;
+  }
+}
 
 interface TradingChartProps {
   symbol: TradingSymbol;
@@ -153,6 +262,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const bbLowerSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const waveLineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const countdownPrimitiveRef = useRef<CountdownPrimitive | null>(null);
 
   // Indicator visibility toggles with localStorage persistence
   const [showEma20, setShowEma20] = useState(() => getStoredBool('chart_show_ema20', true));
@@ -161,6 +271,50 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const [showRsi, setShowRsi] = useState(() => getStoredBool('chart_show_rsi', true));
   const [showSwings, setShowSwings] = useState(() => getStoredBool('chart_show_swings', true));
   const [currentSwingTrend, setCurrentSwingTrend] = useState<'UP' | 'DOWN'>('UP');
+  const [candleTimeLeft, setCandleTimeLeft] = useState<string>('00:00');
+
+  // Update countdown on price scale
+  useEffect(() => {
+    if (countdownPrimitiveRef.current && candles.length > 0) {
+      const last = candles[candles.length - 1];
+      if (last) {
+        const isUp = last.close >= last.open;
+        const color = isUp ? '#10b981' : '#f43f5e';
+        countdownPrimitiveRef.current.update(candleTimeLeft, last.close, color);
+      }
+    }
+  }, [candleTimeLeft, candles]);
+
+  // Countdown timer for selected timeframe
+  useEffect(() => {
+    const getSecondsForTf = (tf: Timeframe): number => {
+      switch (tf) {
+        case 'M1': return 60;
+        case 'M5': return 300;
+        case 'M15': return 900;
+        case 'H1': return 3600;
+        default: return 60;
+      }
+    };
+
+    const updateCountdown = () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const tfSec = getSecondsForTf(timeframe);
+      const currentCandleStart = Math.floor(nowSec / tfSec) * tfSec;
+      const nextCandleStart = currentCandleStart + tfSec;
+      const remaining = Math.max(0, nextCandleStart - nowSec);
+
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      const mStr = m < 10 ? `0${m}` : `${m}`;
+      const sStr = s < 10 ? `0${s}` : `${s}`;
+      setCandleTimeLeft(`${mStr}:${sStr}`);
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [timeframe]);
 
   const toggleEma20 = () => {
     setShowEma20(prev => {
@@ -254,40 +408,44 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     const ema20Series = chart.addLineSeries({
       color: '#f59e0b', // Amber
       lineWidth: 2,
-      title: 'EMA 20',
       priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     const ema50Series = chart.addLineSeries({
       color: '#a855f7', // Purple
       lineWidth: 2,
-      title: 'EMA 50',
       priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     const bbUpperSeries = chart.addLineSeries({
       color: '#06b6d4', // Cyan
       lineWidth: 1,
       lineStyle: 2,
-      title: 'BB Upper',
       priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     const bbLowerSeries = chart.addLineSeries({
       color: '#06b6d4',
       lineWidth: 1,
       lineStyle: 2,
-      title: 'BB Lower',
       priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     const waveLineSeries = chart.addLineSeries({
       color: '#38bdf8', // Sky Cyan
       lineWidth: 2,
       lineStyle: 2, // Dashed
-      title: 'TopDown',
       priceLineVisible: false,
+      lastValueVisible: false,
     });
+
+    const countdownPrimitive = new CountdownPrimitive();
+    candleSeries.attachPrimitive(countdownPrimitive);
+    countdownPrimitiveRef.current = countdownPrimitive;
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
@@ -306,6 +464,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      try {
+        candleSeries.detachPrimitive(countdownPrimitive);
+      } catch {}
+      countdownPrimitiveRef.current = null;
       chart.remove();
     };
   }, []);
@@ -690,7 +852,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       {/* Live Ticker Bar */}
       <div className="px-4 py-2 bg-slate-950/80 border-b border-slate-800/60 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-5">
+          {/* Price Column */}
           <div className="flex items-baseline gap-2">
             <span className="font-mono text-lg font-extrabold text-white">
               {latestCandle ? latestCandle.close.toFixed(symbol === 'EURUSD' || symbol === 'GBPUSD' ? 5 : 2) : '---'}
@@ -701,35 +864,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-3 text-slate-400 font-mono text-[11px]">
-            <span>Bid: <strong className="text-slate-200">{currentTick?.bid || '---'}</strong></span>
-            <span>Ask: <strong className="text-slate-200">{currentTick?.ask || '---'}</strong></span>
+          {/* Bid / Ask (Giá mua và bán) Column */}
+          <div className="hidden sm:flex items-center gap-3 text-slate-300 font-mono text-[11px]">
+            <span>Giá Bán (Bid): <strong className="text-slate-100">{currentTick?.bid || '---'}</strong></span>
+            <span>Giá Mua (Ask): <strong className="text-slate-100">{currentTick?.ask || '---'}</strong></span>
             <span>Spread: <strong className="text-cyan-400">{currentTick?.spread || '---'}</strong></span>
           </div>
-        </div>
-
-        {/* Real-time Indicator Snapshot & Wave Readouts */}
-        <div className="hidden md:flex items-center gap-3 text-[11px] font-mono">
-          <span className={`px-2 py-0.5 rounded border text-[11px] font-bold ${
-            currentSwingTrend === 'UP'
-              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-              : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-          }`}>
-            TopDown: {currentSwingTrend === 'UP' ? '📈 TĂNG (Tìm Đỉnh)' : '📉 GIẢM (Tìm Đáy)'}
-          </span>
-          {indicators && (
-            <>
-              <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
-                RSI: <strong className={`${indicators.rsi14 < 30 ? 'text-emerald-400' : indicators.rsi14 > 70 ? 'text-rose-400' : 'text-sky-300'}`}>{indicators.rsi14}</strong>
-              </span>
-              <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300">
-                EMA20: {indicators.ema20}
-              </span>
-              <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-purple-300">
-                EMA50: {indicators.ema50}
-              </span>
-            </>
-          )}
         </div>
       </div>
 

@@ -142,6 +142,14 @@ export class MarketDataService extends EventEmitter {
             if (candleList.length > 500) {
               candleList.shift();
             }
+
+            // Emit candleClosed event for the finished candle
+            this.emit('candleClosed', {
+              symbol,
+              timeframe: tf,
+              closedCandle: { ...lastCandle },
+              newCandle
+            });
           }
         }
 

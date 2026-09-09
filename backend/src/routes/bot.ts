@@ -57,5 +57,33 @@ router.post('/telegram-toggle', (req: Request, res: Response) => {
   res.json({ success: true, notificationsEnabled: currentStatus, message: currentStatus ? 'Đã BẬT đẩy thông báo Telegram' : 'Đã TẮT đẩy thông báo Telegram' });
 });
 
+// GET overall bot status & alert flags
+router.get('/status', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      botActive: botEngine.isBotActive(),
+      swingAlertsActive: botEngine.isSwingAlertsActive(),
+      analysisAlertsActive: botEngine.isAnalysisAlertsActive(),
+      activeSymbol: botEngine.getActiveSymbol(),
+      activeTimeframe: botEngine.getActiveTimeframe(),
+      telegramNotificationsEnabled: telegramService.isNotificationsEnabled(),
+      telegramConfigured: telegramService.getCredentials().active
+    }
+  });
+});
+
+// POST toggle market analysis alerts
+router.post('/analysis-toggle', (req: Request, res: Response) => {
+  const { active } = req.body;
+  const newStatus = active !== undefined ? Boolean(active) : !botEngine.isAnalysisAlertsActive();
+  botEngine.setAnalysisAlertsActive(newStatus);
+  res.json({
+    success: true,
+    analysisActive: newStatus,
+    message: newStatus ? 'Đã BẬT phân tích thị trường tự động' : 'Đã TẮT phân tích thị trường tự động'
+  });
+});
+
 export default router;
 

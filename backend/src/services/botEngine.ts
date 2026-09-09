@@ -5,11 +5,12 @@ import { marketData } from './marketData.js';
 import { mt5Bridge } from './mt5Bridge.js';
 import { IndicatorService } from './indicators.js';
 import { CONFIG } from '../config.js';
-import { AutomationRule, BotMessage, TradingSymbol, Timeframe, Order } from '../types/index.js';
+import { AutomationRule, BotMessage, TradingSymbol, Timeframe, Order, Candle } from '../types/index.js';
 
 export class BotEngineService extends EventEmitter {
   private isRunning: boolean = true;
   private swingAlertsActive: boolean = true;
+  private analysisAlertsActive: boolean = true;
   private activeSymbol: TradingSymbol = 'XAUUSD';
   private activeTimeframe: Timeframe = 'M1';
   private evalTimer: NodeJS.Timeout | null = null;
@@ -21,6 +22,7 @@ export class BotEngineService extends EventEmitter {
     super();
     this.isRunning = db.getSetting('botActive') !== 'false';
     this.swingAlertsActive = db.getSetting('swingAlertsActive') !== 'false';
+    this.analysisAlertsActive = db.getSetting('analysisAlertsActive') !== 'false';
 
     const savedSymbol = db.getSetting('activeSymbol') as TradingSymbol;
     const savedTf = db.getSetting('activeTimeframe') as Timeframe;
@@ -49,9 +51,17 @@ export class BotEngineService extends EventEmitter {
       this.emit('botMessage', msg);
     });
 
+    // Hook candle closed event from marketData to trigger market analysis on candle close
+    marketData.on('candleClosed', ({ symbol, timeframe, closedCandle }: { symbol: TradingSymbol; timeframe: Timeframe; closedCandle: Candle }) => {
+      if (symbol === this.activeSymbol && timeframe === this.activeTimeframe) {
+        if (this.analysisAlertsActive && this.isRunning) {
+          this.generatePeriodicAnalysis(closedCandle);
+        }
+      }
+    });
+
     this.initDynamicSwingTrackers();
     this.startEngine();
-    this.startPeriodicAnalysis();
   }
 
   setBotActive(active: boolean) {
@@ -92,6 +102,26 @@ export class BotEngineService extends EventEmitter {
 
   isSwingAlertsActive(): boolean {
     return this.swingAlertsActive;
+  }
+
+  setAnalysisAlertsActive(active: boolean) {
+    this.analysisAlertsActive = active;
+    db.setSetting('analysisAlertsActive', active ? 'true' : 'false');
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'INFO',
+      title: active ? '📊 Phân Tích Tự Động: ĐÃ BẬT' : '⏸️ Phân Tích Tự Động: TẠM DỪNG',
+      message: active
+        ? `Đã BẬT tự động phân tích kỹ thuật định kỳ cho ${this.activeSymbol} (${this.activeTimeframe}).`
+        : 'Đã tạm dừng tự động phân tích kỹ thuật định kỳ.',
+      timestamp: Date.now()
+    };
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+  }
+
+  isAnalysisAlertsActive(): boolean {
+    return this.analysisAlertsActive;
   }
 
   setActiveSymbolAndTimeframe(symbol: TradingSymbol, timeframe: Timeframe) {
@@ -450,33 +480,39 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
     return { success: true, order };
   }
 
-  private generatePeriodicAnalysis() {
-    const symbol: TradingSymbol = 'XAUUSD';
-    const snapshot = marketData.getIndicators(symbol, 'M1');
+  private generatePeriodicAnalysis(closedCandle?: Candle) {
+    if (!this.analysisAlertsActive || !this.isRunning) return;
+
+    const symbol = this.activeSymbol;
+    const timeframe = this.activeTimeframe;
+    const snapshot = marketData.getIndicators(symbol, timeframe);
     const price = marketData.getCurrentPrice(symbol);
 
     let trendDescription = 'Đi ngang (Sideway)';
     if (snapshot.ema20 > snapshot.ema50) {
-      trendDescription = 'Tăng điểm ngắn hạn (EMA20 > EMA50)';
+      trendDescription = `Tăng điểm ngắn hạn (${timeframe})`;
     } else if (snapshot.ema20 < snapshot.ema50) {
-      trendDescription = 'Điều chỉnh giảm (EMA20 < EMA50)';
+      trendDescription = `Điều chỉnh giảm (${timeframe})`;
     }
 
     let rsiState = 'Vùng cân bằng';
     if (snapshot.rsi14 < 35) rsiState = 'Gần vùng quá bán (RSI < 35) - Cơ hội MUA canh đảo chiều';
     else if (snapshot.rsi14 > 65) rsiState = 'Gần vùng quá mua (RSI > 65) - Cảnh báo kháng cự';
 
+    const spec = CONFIG.SYMBOLS[symbol];
+    const closePriceStr = closedCandle ? closedCandle.close.toFixed(spec.digits) : price.lastPrice.toString();
+
     const msg: BotMessage = {
       id: uuidv4(),
       type: 'ANALYSIS',
-      title: `📊 Phân Tích Kỹ Thuật Tự Động: ${symbol}`,
-      message: `Cập nhật thị trường ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
-• Giá hiện tại: ${price.lastPrice} (Bid: ${price.bid} | Ask: ${price.ask})
+      title: `📊 Phân Tích Đóng Nến: ${symbol} (${timeframe})`,
+      message: `Đã đóng 1 nến ${timeframe} của ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
+• Giá đóng nến: ${closePriceStr} (Bid: ${price.bid} | Ask: ${price.ask})
 • RSI 14: ${snapshot.rsi14} (${rsiState})
-• Xu hướng M1: ${trendDescription}
-• Bollinger Bands: [${snapshot.bbLower.toFixed(2)} - ${snapshot.bbUpper.toFixed(2)}]`,
+• Xu hướng ${timeframe}: ${trendDescription}
+• Bollinger Bands: [${snapshot.bbLower.toFixed(spec.digits)} - ${snapshot.bbUpper.toFixed(spec.digits)}]`,
       symbol,
-      data: { snapshot, price },
+      data: { snapshot, price, timeframe, closedCandle },
       timestamp: Date.now()
     };
 
