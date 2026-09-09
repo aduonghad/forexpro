@@ -10,6 +10,8 @@ import { AutomationRule, BotMessage, TradingSymbol, Timeframe, Order } from '../
 export class BotEngineService extends EventEmitter {
   private isRunning: boolean = true;
   private swingAlertsActive: boolean = true;
+  private activeSymbol: TradingSymbol = 'XAUUSD';
+  private activeTimeframe: Timeframe = 'M1';
   private evalTimer: NodeJS.Timeout | null = null;
   private analysisTimer: NodeJS.Timeout | null = null;
   private lastTriggerTimes: Map<string, number> = new Map(); // ruleId -> timestamp
@@ -19,6 +21,15 @@ export class BotEngineService extends EventEmitter {
     super();
     this.isRunning = db.getSetting('botActive') !== 'false';
     this.swingAlertsActive = db.getSetting('swingAlertsActive') !== 'false';
+
+    const savedSymbol = db.getSetting('activeSymbol') as TradingSymbol;
+    const savedTf = db.getSetting('activeTimeframe') as Timeframe;
+    if (savedSymbol && CONFIG.SYMBOLS[savedSymbol]) {
+      this.activeSymbol = savedSymbol;
+    }
+    if (savedTf && ['M1', 'M5', 'M15', 'H1'].includes(savedTf)) {
+      this.activeTimeframe = savedTf;
+    }
 
     // Hook order close events from mt5Bridge to broadcast to chat
     mt5Bridge.on('orderClosed', ({ order, pnl, reason }: { order: Order; pnl: number; reason: string }) => {
@@ -69,10 +80,10 @@ export class BotEngineService extends EventEmitter {
     const msg: BotMessage = {
       id: uuidv4(),
       type: 'INFO',
-      title: active ? '⚡ Thông Báo Đỉnh Đáy: ĐÃ BẬT' : '⏸️ Thông Báo Đỉnh Đáy: TẠM DỪNG',
+      title: active ? 'Thông Báo TopDown: ĐÃ BẬT' : '⏸️ Thông Báo TopDown: TẠM DỪNG',
       message: active
-        ? 'Bot sẽ tự động gửi thông báo lên chat ngay khi có Đỉnh hoặc Đáy mới được xác nhận thành công trên các cặp tiền.'
-        : 'Đã tạm tắt thông báo tự động khi tạo Đỉnh/Đáy.',
+        ? 'Bot sẽ tự động gửi thông báo lên chat ngay khi có tín hiệu TopDown mới được xác nhận thành công trên các cặp tiền.'
+        : 'Đã tạm tắt thông báo tự động TopDown.',
       timestamp: Date.now()
     };
     db.addBotMessage(msg);
@@ -81,6 +92,25 @@ export class BotEngineService extends EventEmitter {
 
   isSwingAlertsActive(): boolean {
     return this.swingAlertsActive;
+  }
+
+  setActiveSymbolAndTimeframe(symbol: TradingSymbol, timeframe: Timeframe) {
+    if (CONFIG.SYMBOLS[symbol]) {
+      this.activeSymbol = symbol;
+      db.setSetting('activeSymbol', symbol);
+    }
+    if (['M1', 'M5', 'M15', 'H1'].includes(timeframe)) {
+      this.activeTimeframe = timeframe;
+      db.setSetting('activeTimeframe', timeframe);
+    }
+  }
+
+  getActiveSymbol(): TradingSymbol {
+    return this.activeSymbol;
+  }
+
+  getActiveTimeframe(): Timeframe {
+    return this.activeTimeframe;
   }
 
   private initDynamicSwingTrackers() {
@@ -109,8 +139,9 @@ export class BotEngineService extends EventEmitter {
   private checkDynamicSwings() {
     if (!this.swingAlertsActive) return;
 
-    const symbols = Object.keys(CONFIG.SYMBOLS) as TradingSymbol[];
-    const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1'];
+    // Only scan dynamic swings for the currently selected active symbol & timeframe
+    const symbols: TradingSymbol[] = [this.activeSymbol];
+    const timeframes: Timeframe[] = [this.activeTimeframe];
 
     for (const symbol of symbols) {
       for (const tf of timeframes) {
@@ -485,13 +516,13 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
 • Tài sản (Equity): $${acc.equity.toLocaleString()} USD
 • Trạng thái Bot: ${acc.botActive ? 'ĐANG CHẠY 🟢' : 'TẠM DỪNG ⏸️'}
 • Vị thế mở: ${acc.openPositionsCount} lệnh (PnL: ${acc.floatingPnl >= 0 ? '+' : ''}$${acc.floatingPnl} USD)`;
-    } else if (text.includes('bật thông báo đỉnh đáy') || text.includes('bật đỉnh đáy')) {
+    } else if (text.includes('bật thông báo topdown') || text.includes('bật thông báo đỉnh đáy') || text.includes('bật topdown')) {
       this.setSwingAlertsActive(true);
-      replyContent = 'Đã BẬT thông báo tự động khi tạo Đỉnh/Đáy nhịp sóng. Bot sẽ tự động gửi tin nhắn phân tích lên chat ngay khi có Đỉnh hoặc Đáy mới được xác nhận.';
-    } else if (text.includes('tắt thông báo đỉnh đáy') || text.includes('tắt đỉnh đáy')) {
+      replyContent = 'Đã BẬT thông báo tự động TopDown. Bot sẽ tự động gửi tin nhắn phân tích lên chat ngay khi có tín hiệu TopDown mới được xác nhận.';
+    } else if (text.includes('tắt thông báo topdown') || text.includes('tắt thông báo đỉnh đáy') || text.includes('tắt topdown')) {
       this.setSwingAlertsActive(false);
-      replyContent = 'Đã TẮT thông báo tự động khi tạo Đỉnh/Đáy nhịp sóng.';
-    } else if (text.includes('đỉnh đáy') || text.includes('nhịp') || text.includes('swing')) {
+      replyContent = 'Đã TẮT thông báo tự động TopDown.';
+    } else if (text.includes('topdown') || text.includes('đỉnh đáy') || text.includes('nhịp') || text.includes('swing')) {
       const xauRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('XAUUSD', 'M1', 100));
       const eurRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('EURUSD', 'M1', 100));
       const btcRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('BTCUSD', 'M1', 100));
@@ -500,25 +531,25 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
         const last = res.swings.length >= 2 ? res.swings[res.swings.length - 2] : null;
         const trend = res.currentTrend === 'UP' ? '📈 TĂNG (Tìm Đỉnh)' : '📉 GIẢM (Tìm Đáy)';
         const lastStr = last ? `${last.type === 'HIGH' ? '🔻 Đỉnh' : '🔺 Đáy'} tại ${last.price}` : '---';
-        return `• ${sym} (M1): Đang ở nhịp ${trend} | Chốt gần nhất: ${lastStr}`;
+        return `• ${sym} (M1): Đang ở TopDown ${trend} | Chốt gần nhất: ${lastStr}`;
       };
 
-      replyTitle = '⚡ Tổng Hợp Nhịp Đỉnh Đáy (M1)';
-      replyContent = `Trạng thái nhịp sóng các cặp chính:
+      replyTitle = 'Tổng Hợp TopDown (M1)';
+      replyContent = `Trạng thái TopDown các cặp chính:
 ${formatSwingStatus('XAU/USD', xauRes)}
 ${formatSwingStatus('EUR/USD', eurRes)}
 ${formatSwingStatus('BTC/USD', btcRes)}
 Trạng thái chuông báo chat: ${this.swingAlertsActive ? 'ĐANG BẬT 🟢' : 'TẠM TẮT ⏸️'}
-(Bot luôn tự động bắn thông báo lên chat mỗi khi tạo đỉnh đáy thành công)`;
+(Bot luôn tự động bắn thông báo lên chat mỗi khi tạo tín hiệu TopDown thành công)`;
     } else if (text.includes('vàng') || text.includes('xau') || text.includes('gold')) {
       const snap = marketData.getIndicators('XAUUSD', 'M1');
       const p = marketData.getCurrentPrice('XAUUSD');
       replyContent = `XAU/USD: Giá ${p.lastPrice}. RSI: ${snap.rsi14}. Bollinger: [${snap.bbLower.toFixed(2)} - ${snap.bbUpper.toFixed(2)}]. EMA20: ${snap.ema20.toFixed(2)}.`;
     } else {
       replyContent = `Chào bạn! Tôi là Bot Auto Trade Exness. Bạn có thể gõ các lệnh nhanh:
-- "nhịp đỉnh đáy": Xem ngay trạng thái đỉnh đáy hiện tại.
+- "topdown": Xem ngay trạng thái TopDown hiện tại.
 - "bật bot" hoặc "tắt bot": Điều khiển hệ thống vào lệnh tự động.
-- "bật thông báo đỉnh đáy" hoặc "tắt thông báo đỉnh đáy".
+- "bật thông báo topdown" hoặc "tắt thông báo topdown".
 - "trạng thái": Xem số dư tài khoản và các vị thế.
 - "đóng hết lệnh": Chốt khẩn cấp tất cả vị thế.
 - "phân tích vàng": Cập nhật tín hiệu thị trường Vàng XAU/USD.`;

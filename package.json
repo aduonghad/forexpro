@@ -6,6 +6,10 @@
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
     "build": "npm run build --prefix backend && npm run build --prefix frontend",
-    "start": "bash start.sh"
+    "start": "concurrently -n backend,frontend -c blue,magenta \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "start:bash": "bash start.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.4"
   }
 }

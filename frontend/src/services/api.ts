@@ -78,6 +78,18 @@ export const api = {
     const res = await axios.post<{ success: boolean; botActive: boolean }>(`${API_BASE}/bot/toggle`, { active });
     return res.data.botActive;
   },
+  getTelegramConfig: async () => {
+    const res = await axios.get<{ success: boolean; data: { botToken: string; chatId: string; active: boolean; notificationsEnabled: boolean } }>(`${API_BASE}/bot/telegram-config`);
+    return res.data.data;
+  },
+  toggleTelegramNotifications: async (enabled?: boolean) => {
+    const res = await axios.post<{ success: boolean; notificationsEnabled: boolean; message: string }>(`${API_BASE}/bot/telegram-toggle`, { enabled });
+    return res.data.notificationsEnabled;
+  },
+  updateTelegramConfig: async (botToken: string, chatId: string) => {
+    const res = await axios.post<{ success: boolean; message: string; data: any }>(`${API_BASE}/bot/telegram-config`, { botToken, chatId });
+    return res.data;
+  },
 
   // Webhook
   getWebhookConfig: async () => {

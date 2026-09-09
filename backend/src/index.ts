@@ -11,6 +11,7 @@ import tradesRouter from './routes/trades.js';
 import chartRouter from './routes/chart.js';
 import webhookRouter from './routes/webhook.js';
 import botRouter from './routes/bot.js';
+import { telegramService } from './services/telegramService.js';
 
 const app = express();
 app.use(cors());
@@ -55,12 +56,27 @@ wsHub.init(server);
 
 // Auto-free port 3001 if an old zombie process is holding it
 try {
-  const pids = execSync(`lsof -ti :${CONFIG.PORT} 2>/dev/null`, { encoding: 'utf-8' }).trim();
-  if (pids) {
-    for (const pid of pids.split('\n')) {
-      const p = parseInt(pid, 10);
-      if (p && p !== process.pid) {
-        try { process.kill(p, 'SIGKILL'); } catch {}
+  if (process.platform === 'win32') {
+    const output = execSync(`netstat -ano | findstr :${CONFIG.PORT}`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (output) {
+      const lines = output.split('\n');
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pidStr = parts[parts.length - 1];
+        const p = parseInt(pidStr, 10);
+        if (p && p !== process.pid) {
+          try { execSync(`taskkill /F /PID ${p}`, { stdio: 'ignore' }); } catch {}
+        }
+      }
+    }
+  } else {
+    const pids = execSync(`lsof -ti :${CONFIG.PORT} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+    if (pids) {
+      for (const pid of pids.split('\n')) {
+        const p = parseInt(pid, 10);
+        if (p && p !== process.pid) {
+          try { process.kill(p, 'SIGKILL'); } catch {}
+        }
       }
     }
   }
@@ -69,8 +85,12 @@ try {
 server.on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\n❌ Cổng ${CONFIG.PORT} đang bị chiếm bởi một tiến trình khác.`);
-    console.error(`👉 Bạn vui lòng chạy lệnh sau trong Terminal để giải phóng cổng:`);
-    console.error(`   lsof -ti :${CONFIG.PORT} | xargs kill -9\n`);
+    if (process.platform === 'win32') {
+      console.error(`👉 Bạn vui lòng giải phóng cổng ${CONFIG.PORT} trong Task Manager hoặc khởi động lại.`);
+    } else {
+      console.error(`👉 Bạn vui lòng chạy lệnh sau trong Terminal để giải phóng cổng:`);
+      console.error(`   lsof -ti :${CONFIG.PORT} | xargs kill -9\n`);
+    }
     process.exit(1);
   } else {
     console.error('Server error:', err);
@@ -83,6 +103,7 @@ server.listen(CONFIG.PORT, () => {
   console.log(`📡 HTTP API: http://localhost:${CONFIG.PORT}`);
   console.log(`⚡ WebSocket: ws://localhost:${CONFIG.PORT}/ws`);
   console.log(`====================================================`);
+  telegramService.init();
 });
 
 // Handle termination signals

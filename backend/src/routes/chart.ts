@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { marketData } from '../services/marketData.js';
+import { botEngine } from '../services/botEngine.js';
 import { CONFIG } from '../config.js';
 import { TradingSymbol, Timeframe } from '../types/index.js';
 
@@ -24,6 +25,9 @@ router.get('/candles', (req: Request, res: Response) => {
     res.status(400).json({ success: false, error: 'Symbol không hợp lệ' });
     return;
   }
+
+  // Update active symbol & timeframe in botEngine
+  botEngine.setActiveSymbolAndTimeframe(symbol, timeframe);
 
   const candles = marketData.getCandles(symbol, timeframe, limit);
   const currentPrices = marketData.getCurrentPrice(symbol);

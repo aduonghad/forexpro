@@ -285,7 +285,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       color: '#38bdf8', // Sky Cyan
       lineWidth: 2,
       lineStyle: 2, // Dashed
-      title: 'Nhịp Sóng Đỉnh Đáy',
+      title: 'TopDown',
       priceLineVisible: false,
     });
 
@@ -683,7 +683,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               showSwings ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20' : 'text-slate-500 line-through'
             }`}
           >
-            <span>⚡ Đỉnh Đáy Nhịp</span>
+            <span>TopDown</span>
           </button>
         </div>
       </div>
@@ -715,7 +715,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
               ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
               : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
           }`}>
-            Nhịp: {currentSwingTrend === 'UP' ? '📈 TĂNG (Tìm Đỉnh)' : '📉 GIẢM (Tìm Đáy)'}
+            TopDown: {currentSwingTrend === 'UP' ? '📈 TĂNG (Tìm Đỉnh)' : '📉 GIẢM (Tìm Đáy)'}
           </span>
           {indicators && (
             <>

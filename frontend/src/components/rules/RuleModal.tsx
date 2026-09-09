@@ -216,7 +216,7 @@ export const RuleModal: React.FC<RuleModalProps> = ({ isOpen, onClose, onSave, i
                   onClick={() => applyPreset('SWING_REVERSAL')}
                   className="px-2 py-1.5 rounded-lg text-[11px] font-medium bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-300 hover:text-white text-left transition"
                 >
-                  ⚡ Bắt Đỉnh Đáy Nhịp
+                  TopDown
                 </button>
                 <button
                   type="button"
@@ -297,7 +297,7 @@ export const RuleModal: React.FC<RuleModalProps> = ({ isOpen, onClose, onSave, i
                   <option value="RSI">RSI (Relative Strength Index)</option>
                   <option value="EMA_CROSS">Giao cắt EMA (20 & 50)</option>
                   <option value="BOLLINGER">Bollinger Bands (20, 2)</option>
-                  <option value="DYNAMIC_SWING">⚡ Bắt Đỉnh Đáy Nhịp Sóng (Dynamic Swing)</option>
+                  <option value="DYNAMIC_SWING">TopDown (Dynamic Swing)</option>
                   <option value="WEBHOOK">TradingView Webhook Alert</option>
                 </select>
               </div>

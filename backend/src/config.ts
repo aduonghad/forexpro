@@ -10,6 +10,12 @@ export const CONFIG = {
   DB_PATH: path.resolve(process.cwd(), 'trading.db'),
   WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || 'exness-pro-secret-2026',
 
+  // Telegram Bot Config
+  TELEGRAM: {
+    BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
+    CHAT_ID: process.env.TELEGRAM_CHAT_ID || '',
+  },
+
   // Exness defaults
   EXNESS: {
     SERVER: process.env.EXNESS_SERVER || 'Exness-Real25',

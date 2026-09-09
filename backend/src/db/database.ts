@@ -1,13 +1,28 @@
-import { DatabaseSync } from 'node:sqlite';
+import BetterSqlite from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
 import { AutomationRule, Order, BotMessage, AccountInfo } from '../types/index.js';
 
+function getDatabaseEngine() {
+  try {
+    // If running on Node 22+ with node:sqlite
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const sqliteModule = eval('require')('node:sqlite');
+    if (sqliteModule && sqliteModule.DatabaseSync) {
+      return sqliteModule.DatabaseSync;
+    }
+  } catch (e) {}
+
+  return BetterSqlite;
+}
+
+const DbEngine: any = getDatabaseEngine();
+
 class DatabaseService {
-  private db: DatabaseSync;
+  private db: any;
 
   constructor() {
-    this.db = new DatabaseSync(CONFIG.DB_PATH);
+    this.db = new DbEngine(CONFIG.DB_PATH);
     this.initTables();
     this.seedDefaultData();
   }
