@@ -1,0 +1,142 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # K\uc0\u7871  Ho\u7841 ch Tri\u7875 n Khai: Web App Trade T\u7921  \u272 \u7897 ng Exness (Full-Stack TypeScript)\
+\
+X\'e2y d\uc0\u7921 ng n\u7873 n t\u7843 ng Web App ho\'e0n ch\u7881 nh s\u7917  d\u7909 ng **100% TypeScript** t\u7915  Frontend \u273 \u7871 n Backend \u273 \u7875  t\u7921  \u273 \u7897 ng giao d\u7883 ch s\'e0n Exness k\u7871 t n\u7889 i MT5 & TradingView.\
+\
+---\
+\
+## 1. C\'f4ng Ngh\uc0\u7879  \u272 \u7873  Xu\u7845 t (Full-Stack TypeScript)\
+\
+- **Backend (Node.js + TypeScript)**:\
+  - Runtime: Node.js (v25.3 c\'f3 s\uc0\u7861 n) v\u7899 i `tsx` / `ts-node` ch\u7841 y TypeScript tr\u7921 c ti\u7871 p si\'eau t\u7889 c.\
+  - Framework: **Express.js** + **ws** (WebSocket server hi\uc0\u7879 u n\u259 ng cao).\
+  - Database: **SQLite** (l\uc0\u432 u tr\u7919  Rules, L\u7879 nh, L\u7883 ch s\u7917  chat c\u7911 a Bot, C\u7845 u h\'ecnh t\'e0i kho\u7843 n).\
+  - Ph\'e2n t\'edch k\uc0\u7929  thu\u7853 t: Thu\u7853 t to\'e1n ch\u7881  b\'e1o vi\u7871 t b\u7857 ng TypeScript (RSI 14, EMA 20/50/200, Bollinger Bands, MACD, ATR).\
+  - Bot Engine: V\'f2ng l\uc0\u7863 p async b\u7845 t \u273 \u7891 ng b\u7897  (TypeScript Event-driven), qu\'e9t n\u7871 n & tick li\'ean t\u7909 c, kh\u7899 p \u273 i\u7873 u ki\u7879 n quy t\u7855 c t\u7921  \u273 \u7897 ng, qu\u7843 n l\'fd r\u7911 i ro v\'e0 ph\'e1t t\'edn hi\u7879 u.\
+  - K\uc0\u7871 t n\u7889 i:\
+    - **TradingView Webhook Handler**: Nh\uc0\u7853 n t\'edn hi\u7879 u tr\u7921 c ti\u7871 p t\u7915  PineScript alerts.\
+    - **MT5 / Exness Bridge & Paper Trading Engine**: M\'f4 ph\uc0\u7887 ng kh\u7899 p l\u7879 nh th\u7921 c t\u7871  chu\u7849 n s\'e0n Exness (Spread, Balance $10,000, Leverage 1:500, SL/TP execution) v\'e0 giao di\u7879 n k\u7871 t n\u7889 i API/Socket t\u7899 i MT5 terminal.\
+- **Frontend (React + Vite + TypeScript)**:\
+  - Framework: React 18 + Vite + TypeScript.\
+  - Styling: Tailwind CSS v3 (Fintech Dark Mode phong c\'e1ch TradingView Pro / Binance Pro, Glassmorphism).\
+  - Bi\uc0\u7875 u \u273 \u7891  n\u7871 n: **TradingView Lightweight Charts** (th\u432  vi\u7879 n ch\'ednh h\'e3ng c\u7911 a TradingView d\'e0nh cho TypeScript/React, c\u7921 c nh\u7865  v\'e0 m\u432 \u7907 t).\
+  - Icons: `lucide-react`.\
+  - K\uc0\u7871 t n\u7889 i d\u7919  li\u7879 u: WebSocket client nh\u7853 n tick gi\'e1, n\u7871 n, PnL, tin nh\u7855 n bot chat real-time.\
+\
+---\
+\
+## 2. C\uc0\u7845 u Tr\'fac D\u7921  \'c1n (Project Structure)\
+\
+```\
+forexpro/\
+\uc0\u9500 \u9472 \u9472  package.json              # Root package qu\u7843 n l\'fd scripts ch\u7841 y song song (concurrently)\
+\uc0\u9500 \u9472 \u9472  backend/\
+\uc0\u9474    \u9500 \u9472 \u9472  package.json\
+\uc0\u9474    \u9500 \u9472 \u9472  tsconfig.json\
+\uc0\u9474    \u9500 \u9472 \u9472  src/\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  index.ts          # Entry point Express app & WebSocket server\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  config.ts         # C\u7845 u h\'ecnh c\u7893 ng, Exness, TradingView webhook secret\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  db/\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  database.ts   # Kh\u7903 i t\u7841 o SQLite database & migration b\u7843 ng\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  schema.ts     # Ki\u7875 u d\u7919  li\u7879 u TypeScript & c\'e1c c\'e2u truy v\u7845 n\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  services/\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  marketData.ts # Qu\u7843 n l\'fd n\u7871 n th\u7901 i gian th\u7921 c (XAUUSD, EURUSD, GBPUSD, BTCUSD...)\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  indicators.ts # T\'ednh to\'e1n ch\u7881  s\u7889  k\u7929  thu\u7853 t RSI, EMA, Bollinger Bands\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  mt5Bridge.ts  # C\u7847 u n\u7889 i Exness MT5 & Engine Paper Trading\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  botEngine.ts  # B\u7897  m\'e1y x\u7917  l\'fd quy t\u7855 c t\u7921  \u273 \u7897 ng, qu\'e9t \u273 i\u7873 u ki\u7879 n, v\'e0o l\u7879 nh\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  routes/\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  rules.ts      # REST API: CRUD c\'e1c y\'eau c\u7847 u t\u7921  \u273 \u7897 ng (Th\'eam/S\u7917 a/Xo\'e1/B\u7853 t-T\u7855 t)\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  trades.ts     # REST API: Danh s\'e1ch l\u7879 nh, \u273 \'f3ng l\u7879 nh, PnL, th\u7889 ng k\'ea\
+\uc0\u9474    \u9474    \u9474    \u9500 \u9472 \u9472  chart.ts      # REST API: D\u7919  li\u7879 u n\u7871 n l\u7883 ch s\u7917  cho bi\u7875 u \u273 \u7891 \
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  webhook.ts    # REST API: Nh\u7853 n t\'edn hi\u7879 u Webhook t\u7915  TradingView\
+\uc0\u9474    \u9474    \u9500 \u9472 \u9472  websocket/\
+\uc0\u9474    \u9474    \u9474    \u9492 \u9472 \u9472  wsHub.ts      # Broadcast ticks, chat bot, v\'e0 th\'f4ng b\'e1o l\u7879 nh\
+\uc0\u9474    \u9474    \u9492 \u9472 \u9472  types/\
+\uc0\u9474    \u9474        \u9492 \u9472 \u9472  index.ts      # Shared TypeScript interfaces (Rule, Order, BotMsg, Candle)\
+\uc0\u9492 \u9472 \u9472  frontend/\
+    \uc0\u9500 \u9472 \u9472  package.json\
+    \uc0\u9500 \u9472 \u9472  tsconfig.json\
+    \uc0\u9500 \u9472 \u9472  vite.config.ts\
+    \uc0\u9500 \u9472 \u9472  tailwind.config.js\
+    \uc0\u9492 \u9472 \u9472  src/\
+        \uc0\u9500 \u9472 \u9472  App.tsx           # \u272 i\u7873 u h\u432 \u7899 ng gi\u7919 a 2 menu ch\'ednh\
+        \uc0\u9500 \u9472 \u9472  types.ts          # \u272 \u7883 nh ngh\u297 a TypeScript \u273 \u7891 ng b\u7897  v\u7899 i backend\
+        \uc0\u9500 \u9472 \u9472  services/\
+        \uc0\u9474    \u9500 \u9472 \u9472  api.ts        # Axios/Fetch client g\u7885 i REST API backend\
+        \uc0\u9474    \u9492 \u9472 \u9472  websocket.ts  # WebSocket client qu\u7843 n l\'fd k\u7871 t n\u7889 i th\u7901 i gian th\u7921 c\
+        \uc0\u9500 \u9472 \u9472  components/\
+        \uc0\u9474    \u9500 \u9472 \u9472  Navbar.tsx    # Header, chuy\u7875 n 2 tab, th\u7889 ng k\'ea t\'e0i kho\u7843 n Exness, tr\u7841 ng th\'e1i Bot\
+        \uc0\u9474    \u9500 \u9472 \u9472  chart/\
+        \uc0\u9474    \u9474    \u9500 \u9472 \u9472  TradingChart.tsx   # Bi\u7875 u \u273 \u7891  n\u7871 n TradingView + \u273 \u432 \u7901 ng ch\u7881  b\'e1o + \u273 i\u7875 m v\'e0o l\u7879 nh\
+        \uc0\u9474    \u9474    \u9492 \u9472 \u9472  IndicatorToggles.tsx # N\'fat b\u7853 t t\u7855 t nhanh RSI, EMA 20/50, Bollinger Bands\
+        \uc0\u9474    \u9500 \u9472 \u9472  bot/\
+        \uc0\u9474    \u9474    \u9492 \u9472 \u9472  BotChat.tsx        # Thanh chat b\'ean ph\u7843 i hi\u7875 n th\u7883  ph\'e2n t\'edch, l\u7879 nh c\u7911 a bot\
+        \uc0\u9474    \u9500 \u9472 \u9472  positions/\
+        \uc0\u9474    \u9474    \u9492 \u9472 \u9472  OpenPositions.tsx  # B\u7843 ng l\u7879 nh \u273 ang ch\u7841 y, live PnL, n\'fat \u273 \'f3ng l\u7879 nh 1-click\
+        \uc0\u9474    \u9492 \u9472 \u9472  rules/\
+        \uc0\u9474        \u9500 \u9472 \u9472  RuleCard.tsx       # Hi\u7875 n th\u7883  t\u7915 ng y\'eau c\u7847 u t\u7921  \u273 \u7897 ng\
+        \uc0\u9474        \u9500 \u9472 \u9472  RuleModal.tsx      # Modal Th\'eam & S\u7917 a y\'eau c\u7847 u t\u7921  \u273 \u7897 ng\
+        \uc0\u9474        \u9492 \u9472 \u9472  TradingViewModal.tsx # H\u432 \u7899 ng d\u7851 n c\'e0i \u273 \u7863 t Webhook TradingView\
+        \uc0\u9492 \u9472 \u9472  pages/\
+            \uc0\u9500 \u9472 \u9472  DashboardPage.tsx      # Menu 1: Trang ch\u7911  (Chart b\'ean tr\'e1i + Chat b\'ean ph\u7843 i)\
+            \uc0\u9492 \u9472 \u9472  AutomationsPage.tsx    # Menu 2: Trang c\'e1c y\'eau c\u7847 u t\u7921  \u273 \u7897 ng (CRUD Rules)\
+```\
+\
+---\
+\
+## 3. Chi Ti\uc0\u7871 t C\'e1c T\'ednh N\u259 ng Theo Y\'eau C\u7847 u\
+\
+### Menu 1: Trang Ch\uc0\u7911  (Dashboard)\
+- **B\'ean tr\'e1i**:\
+  - Ticker bar ch\uc0\u7885 n c\u7863 p ti\u7873 n: **XAU/USD (V\'e0ng)**, **EUR/USD**, **GBP/USD**, **USD/JPY**, **BTC/USD**.\
+  - Ch\uc0\u7885 n khung th\u7901 i gian: **M1**, **M5**, **M15**, **H1**.\
+  - Bi\uc0\u7875 u \u273 \u7891  n\u7871 n t\u432 \u417 ng t\'e1c cao t\u7915  **TradingView Lightweight Charts** v\u7899 i n\u7871 n nh\u7843 y t\u7915 ng gi\'e2y.\
+  - T\'edch h\uc0\u7907 p v\u7869  \u273 \u432 \u7901 ng ch\u7881  b\'e1o: **EMA 20** (v\'e0ng), **EMA 50** (t\'edm), **Bollinger Bands** (xanh l\u417 ), v\'e0 khung bi\u7875 u \u273 \u7891  ph\u7909  **RSI 14** b\'ean d\u432 \u7899 i v\u7899 i m\u7913 c 30/70.\
+  - B\uc0\u7843 ng **L\u7879 nh \u273 ang m\u7903  (Open Positions)** ngay d\u432 \u7899 i bi\u7875 u \u273 \u7891 : hi\u7875 n th\u7883  Kh\u7889 i l\u432 \u7907 ng, Gi\'e1 v\'e0o, Gi\'e1 hi\u7879 n t\u7841 i, SL, TP, PnL bi\u7871 n \u273 \u7897 ng real-time, n\'fat \u272 \'f3ng l\u7879 nh t\u7913 c th\'ec.\
+- **B\'ean ph\uc0\u7843 i**:\
+  - **Thanh Chat Bot**:\
+    - Hi\uc0\u7875 n th\u7883  theo th\u7901 i gian th\u7921 c m\u7885 i suy lu\u7853 n v\'e0 h\'e0nh \u273 \u7897 ng c\u7911 a bot.\
+    - \uc0\u272 \u7883 nh d\u7841 ng th\u7867  tin nh\u7855 n tr\u7921 c quan:\
+      - \uc0\u55357 \u57314  **L\u7879 nh MUA m\u7899 i** (K\'e8m Lot, Gi\'e1, SL, TP, L\'fd do k\'edch ho\u7841 t t\u7915  Y\'eau c\u7847 u t\u7921  \u273 \u7897 ng n\'e0o).\
+      - \uc0\u55357 \u56628  **L\u7879 nh B\'c1N m\u7899 i**.\
+      - \uc0\u55357 \u56496  **Ch\u7889 t l\u7901 i (Take Profit) / C\u7855 t l\u7895  (Stop Loss)** v\u7899 i s\u7889  ti\u7873 n l\'e3i/l\u7895  xanh/\u273 \u7887 .\
+      - \uc0\u55357 \u56589  **Ph\'e2n t\'edch k\u7929  thu\u7853 t \u273 \u7883 nh k\u7923 **: T\'ecnh tr\u7841 ng RSI, EMA, xu h\u432 \u7899 ng.\
+      - \uc0\u9888 \u65039  **C\u7843 nh b\'e1o r\u7911 i ro**: Bi\u7871 n \u273 \u7897 ng m\u7841 nh, ng\u432 \u7907 c xu h\u432 \u7899 ng.\
+    - Khung nh\uc0\u7853 p tin nh\u7855 n: Ng\u432 \u7901 i d\'f9ng c\'f3 th\u7875  chat tr\u7921 c ti\u7871 p v\u7899 i bot (v\'ed d\u7909 : g\'f5 `\u273 \'f3ng h\u7871 t l\u7879 nh`, `t\u7841 m d\u7915 ng bot`, `b\u7853 t bot`, `b\'e1o c\'e1o`).\
+\
+### Menu 2: C\'e1c Y\'eau C\uc0\u7847 u T\u7921  \u272 \u7897 ng (Automations)\
+- **Danh s\'e1ch y\'eau c\uc0\u7847 u t\u7921  \u273 \u7897 ng**:\
+  - Th\uc0\u7867  hi\u7875 n th\u7883  tr\u7921 c quan th\'f4ng s\u7889  t\u7915 ng chi\u7871 n l\u432 \u7907 c: T\'ean, C\u7863 p ti\u7873 n, Khung th\u7901 i gian, \u272 i\u7873 u ki\u7879 n k\'edch ho\u7841 t, Kh\u7889 i l\u432 \u7907 ng (Lot), C\u7855 t l\u7895  (SL), Ch\u7889 t l\u7901 i (TP), Tr\u7841 ng th\'e1i (\u272 ang B\u7853 t / \u272 ang T\u7855 t).\
+  - Th\uc0\u7889 ng k\'ea hi\u7879 u su\u7845 t: S\u7889  l\u7879 nh \u273 \'e3 v\'e0o, T\u7927  l\u7879  th\u7855 ng (Win Rate), T\u7893 ng l\u7907 i nhu\u7853 n t\u7915  y\'eau c\u7847 u n\'e0y.\
+- **Th\'eam y\'eau c\uc0\u7847 u m\u7899 i (Create Rule Modal)**:\
+  - C\uc0\u7845 u h\'ecnh \u273 i\u7873 u ki\u7879 n linh ho\u7841 t:\
+    - **RSI**: Qu\'e1 b\'e1n (RSI < 30) -> MUA, Qu\'e1 mua (RSI > 70) -> B\'c1N.\
+    - **EMA Crossover**: EMA 20 c\uc0\u7855 t l\'ean EMA 50 -> MUA, c\u7855 t xu\u7889 ng -> B\'c1N.\
+    - **Bollinger Bands**: Gi\'e1 ch\uc0\u7841 m d\u7843 i d\u432 \u7899 i -> MUA, ch\u7841 m d\u7843 i tr\'ean -> B\'c1N.\
+    - **TradingView Webhook**: L\uc0\u7855 ng nghe t\'edn hi\u7879 u c\u7843 nh b\'e1o t\u7915  TradingView PineScript.\
+  - Qu\uc0\u7843 n l\'fd v\u7889 n: Lot size (0.01 - 10.0), Stop Loss (pips), Take Profit (pips), Trailing Stop (pips), Gi\u7899 i h\u7841 n s\u7889  l\u7879 nh \u273 \u7891 ng th\u7901 i.\
+- **S\uc0\u7917 a y\'eau c\u7847 u (Update Rule)**: Ch\u7881 nh s\u7917 a t\u7913 c th\'ec c\'e1c th\'f4ng s\u7889  v\'e0 c\u7853 p nh\u7853 t ngay v\'e0o v\'f2ng l\u7863 p c\u7911 a Bot.\
+- **Xo\'e1 y\'eau c\uc0\u7847 u (Delete Rule)**: X\'e1c nh\u7853 n xo\'e1 an to\'e0n.\
+- **T\'edch h\uc0\u7907 p Webhook TradingView**:\
+  - Hi\uc0\u7875 n th\u7883  URL Webhook c\'e1 nh\'e2n h\'f3a v\'e0 c\'fa ph\'e1p JSON m\u7851 u s\u7861 n s\'e0ng copy \u273 \u7875  d\'e1n v\'e0o h\u7897 p tho\u7841 i Alert tr\'ean TradingView.\
+\
+---\
+\
+## 4. K\uc0\u7871  Ho\u7841 ch Ki\u7875 m Th\u7917  & X\'e1c Minh\
+\
+1. **Backend Verification**:\
+   - Kh\uc0\u7903 i \u273 \u7897 ng backend TypeScript v\u7899 i `tsx`.\
+   - Ki\uc0\u7875 m tra REST API: CRUD t\u7841 o, \u273 \u7885 c, c\u7853 p nh\u7853 t, xo\'e1 y\'eau c\u7847 u t\u7921  \u273 \u7897 ng.\
+   - Ki\uc0\u7875 m tra endpoint webhook `/api/webhook/tradingview` k\'edch ho\u7841 t l\u7879 nh chu\u7849 n x\'e1c.\
+   - Ki\uc0\u7875 m tra WebSocket ph\'e1t d\u7919  li\u7879 u tick v\'e0 tin nh\u7855 n chat bot th\u7901 i gian th\u7921 c.\
+2. **Frontend Verification**:\
+   - Ki\uc0\u7875 m tra build TypeScript `npm run build` kh\'f4ng c\'f3 b\u7845 t k\u7923  l\u7895 i c\'fa ph\'e1p hay ki\u7875 u d\u7919  li\u7879 u n\'e0o.\
+   - Kh\uc0\u7903 i ch\u7841 y web app tr\'ean tr\'ecnh duy\u7879 t, ki\u7875 m tra bi\u7875 u \u273 \u7891  n\u7871 n, thanh chat bot b\'ean ph\u7843 i, b\u7843 ng l\u7879 nh m\u7903 .\
+   - Th\uc0\u7917  nghi\u7879 m thao t\'e1c t\u7841 o m\u7897 t y\'eau c\u7847 u t\u7921  \u273 \u7897 ng m\u7899 i (v\'ed d\u7909 : RSI Scalping), k\'edch ho\u7841 t v\'e0 quan s\'e1t bot t\u7921  \u273 \u7897 ng ph\'e2n t\'edch, ph\'e1t tin nh\u7855 n chat v\'e0 v\'e0o l\u7879 nh.\
+}

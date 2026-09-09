@@ -1,0 +1,541 @@
+import { EventEmitter } from 'events';
+import { v4 as uuidv4 } from 'uuid';
+import { db } from '../db/database.js';
+import { marketData } from './marketData.js';
+import { mt5Bridge } from './mt5Bridge.js';
+import { IndicatorService } from './indicators.js';
+import { CONFIG } from '../config.js';
+import { AutomationRule, BotMessage, TradingSymbol, Timeframe, Order } from '../types/index.js';
+
+export class BotEngineService extends EventEmitter {
+  private isRunning: boolean = true;
+  private swingAlertsActive: boolean = true;
+  private evalTimer: NodeJS.Timeout | null = null;
+  private analysisTimer: NodeJS.Timeout | null = null;
+  private lastTriggerTimes: Map<string, number> = new Map(); // ruleId -> timestamp
+  private lastNotifiedSwings: Map<string, { type: 'HIGH' | 'LOW'; time: number; price: number }> = new Map();
+
+  constructor() {
+    super();
+    this.isRunning = db.getSetting('botActive') !== 'false';
+    this.swingAlertsActive = db.getSetting('swingAlertsActive') !== 'false';
+
+    // Hook order close events from mt5Bridge to broadcast to chat
+    mt5Bridge.on('orderClosed', ({ order, pnl, reason }: { order: Order; pnl: number; reason: string }) => {
+      const isProfit = pnl >= 0;
+      const emoji = isProfit ? '🎯' : '🛑';
+      const msg: BotMessage = {
+        id: uuidv4(),
+        type: 'CLOSE',
+        title: `${emoji} Đóng Lệnh ${order.symbol} (${reason})`,
+        message: `Lệnh ${order.type} ${order.lot} lot ${order.symbol} đã đóng tại giá ${order.closePrice}. Lợi nhuận: ${isProfit ? '+' : ''}$${pnl.toFixed(2)} USD.`,
+        symbol: order.symbol,
+        orderId: order.id,
+        data: { pnl, reason, order },
+        timestamp: Date.now()
+      };
+      db.addBotMessage(msg);
+      this.emit('botMessage', msg);
+    });
+
+    this.initDynamicSwingTrackers();
+    this.startEngine();
+    this.startPeriodicAnalysis();
+  }
+
+  setBotActive(active: boolean) {
+    this.isRunning = active;
+    db.setSetting('botActive', active ? 'true' : 'false');
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'INFO',
+      title: active ? '🟢 Bot Đã Kích Hoạt' : '⏸️ Bot Đã Tạm Dừng',
+      message: active
+        ? 'Hệ thống giao dịch tự động đã sẵn sàng. Đang quét các yêu cầu tự động...'
+        : 'Hệ thống giao dịch tự động đã tạm dừng quét điều kiện.',
+      timestamp: Date.now()
+    };
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+  }
+
+  isBotActive(): boolean {
+    return this.isRunning;
+  }
+
+  setSwingAlertsActive(active: boolean) {
+    this.swingAlertsActive = active;
+    db.setSetting('swingAlertsActive', active ? 'true' : 'false');
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'INFO',
+      title: active ? '⚡ Thông Báo Đỉnh Đáy: ĐÃ BẬT' : '⏸️ Thông Báo Đỉnh Đáy: TẠM DỪNG',
+      message: active
+        ? 'Bot sẽ tự động gửi thông báo lên chat ngay khi có Đỉnh hoặc Đáy mới được xác nhận thành công trên các cặp tiền.'
+        : 'Đã tạm tắt thông báo tự động khi tạo Đỉnh/Đáy.',
+      timestamp: Date.now()
+    };
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+  }
+
+  isSwingAlertsActive(): boolean {
+    return this.swingAlertsActive;
+  }
+
+  private initDynamicSwingTrackers() {
+    const symbols = Object.keys(CONFIG.SYMBOLS) as TradingSymbol[];
+    const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1'];
+
+    for (const symbol of symbols) {
+      for (const tf of timeframes) {
+        const key = `${symbol}_${tf}`;
+        const candles = marketData.getCandles(symbol, tf, 100);
+        if (candles.length >= 3) {
+          const { swings } = IndicatorService.calculateDynamicSwings(candles);
+          if (swings.length >= 2) {
+            const lastConfirmed = swings[swings.length - 2];
+            this.lastNotifiedSwings.set(key, {
+              type: lastConfirmed.type,
+              time: lastConfirmed.time,
+              price: lastConfirmed.price
+            });
+          }
+        }
+      }
+    }
+  }
+
+  private checkDynamicSwings() {
+    if (!this.swingAlertsActive) return;
+
+    const symbols = Object.keys(CONFIG.SYMBOLS) as TradingSymbol[];
+    const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1'];
+
+    for (const symbol of symbols) {
+      for (const tf of timeframes) {
+        const key = `${symbol}_${tf}`;
+        const candles = marketData.getCandles(symbol, tf, 100);
+        if (candles.length < 5) continue;
+
+        const { swings, currentTrend } = IndicatorService.calculateDynamicSwings(candles);
+        if (swings.length < 2) continue;
+
+        const lastConfirmed = swings[swings.length - 2];
+        const lastNotified = this.lastNotifiedSwings.get(key);
+
+        const isNewSwing = !lastNotified || (
+          lastConfirmed.type !== lastNotified.type &&
+          lastConfirmed.time > lastNotified.time
+        );
+
+        if (!isNewSwing) continue;
+
+        // Lưu trạng thái đỉnh đáy mới đã chốt
+        this.lastNotifiedSwings.set(key, {
+          type: lastConfirmed.type,
+          time: lastConfirmed.time,
+          price: lastConfirmed.price
+        });
+
+        const spec = CONFIG.SYMBOLS[symbol];
+        const prevConfirmed = swings.length >= 3 ? swings[swings.length - 3] : null;
+        const snapshot = IndicatorService.getSnapshot(candles);
+
+        let amplitudeText = '';
+        if (prevConfirmed) {
+          const diff = lastConfirmed.price - prevConfirmed.price;
+          const pips = Math.round(Math.abs(diff) / spec.pipSize);
+          const duration = Math.max(1, Math.round((lastConfirmed.time - prevConfirmed.time) / 60));
+          amplitudeText = `\n• Biên độ nhịp: ${diff >= 0 ? '+' : ''}${diff.toFixed(spec.digits)} (${pips} pips) qua ${duration} phút`;
+        }
+
+        const isPeak = lastConfirmed.type === 'HIGH';
+        const formattedPrice = lastConfirmed.price.toLocaleString('en-US', { minimumFractionDigits: spec.digits });
+        const timeStr = new Date(lastConfirmed.time * 1000).toLocaleTimeString('vi-VN');
+
+        const title = isPeak
+          ? `🔻 Xác Nhận ĐỈNH: ${symbol} (${tf})`
+          : `🔺 Xác Nhận ĐÁY: ${symbol} (${tf})`;
+
+        const transitionText = isPeak
+          ? `📉 Đảo chiều sang nhịp GIẢM (Tìm Đáy mới)`
+          : `📈 Đảo chiều sang nhịp TĂNG (Tìm Đỉnh mới)`;
+
+        const rsiStatus = snapshot.rsi14 > 70 ? 'Quá mua' : snapshot.rsi14 < 30 ? 'Quá bán' : 'Cân bằng';
+
+        const message = isPeak
+          ? `Đã tạo ĐỈNH nhịp sóng thành công tại ${formattedPrice}.${amplitudeText}
+• Xu hướng tiếp theo: ${transitionText}
+• RSI(14): ${snapshot.rsi14} (${rsiStatus})
+• Thời gian chốt đỉnh: ${timeStr}`
+          : `Đã tạo ĐÁY nhịp sóng thành công tại ${formattedPrice}.${amplitudeText}
+• Xu hướng tiếp theo: ${transitionText}
+• RSI(14): ${snapshot.rsi14} (${rsiStatus})
+• Thời gian chốt đáy: ${timeStr}`;
+
+        const botMsg: BotMessage = {
+          id: uuidv4(),
+          type: 'SIGNAL',
+          title,
+          message,
+          symbol,
+          data: {
+            type: isPeak ? 'SWING_PEAK' : 'SWING_TROUGH',
+            price: lastConfirmed.price,
+            timeframe: tf,
+            time: lastConfirmed.time,
+            rsi: snapshot.rsi14,
+            currentTrend
+          },
+          timestamp: Date.now()
+        };
+
+        db.addBotMessage(botMsg);
+        this.emit('botMessage', botMsg);
+      }
+    }
+  }
+
+  private startEngine() {
+    if (this.evalTimer) return;
+
+    // Evaluate dynamic swings and active rules every 1500ms
+    this.evalTimer = setInterval(() => {
+      this.checkDynamicSwings();
+      if (!this.isRunning) return;
+      this.evaluateAllRules();
+    }, 1500);
+  }
+
+  private startPeriodicAnalysis() {
+    if (this.analysisTimer) return;
+
+    // Send technical analysis insight every 60 seconds
+    this.analysisTimer = setInterval(() => {
+      if (!this.isRunning) return;
+      this.generatePeriodicAnalysis();
+    }, 60000);
+  }
+
+  private evaluateAllRules() {
+    const rules = db.getAllRules().filter(r => r.isActive);
+    if (rules.length === 0) return;
+
+    const openOrders = db.getOpenOrders();
+
+    for (const rule of rules) {
+      // Check max positions for this rule
+      const rulePositions = openOrders.filter(o => o.ruleId === rule.id);
+      if (rulePositions.length >= rule.maxOpenPositions) {
+        continue;
+      }
+
+      // Check cooldown (minimum 45 seconds between triggers for same rule)
+      const lastTrigger = this.lastTriggerTimes.get(rule.id) || 0;
+      if (Date.now() - lastTrigger < 45000) {
+        continue;
+      }
+
+      const candles = marketData.getCandles(rule.symbol, rule.timeframe, 60);
+      if (candles.length < 25) continue;
+
+      const snapshot = IndicatorService.getSnapshot(candles);
+      const currentPrice = marketData.getCurrentPrice(rule.symbol).lastPrice;
+
+      let triggered = false;
+      let triggerReason = '';
+
+      switch (rule.indicator) {
+        case 'RSI': {
+          const rsi = snapshot.rsi14;
+          const prevRsi = snapshot.rsi14Prev;
+          const targetValue = rule.condition.value || 30;
+
+          if (rule.condition.operator === '<' && rsi < targetValue) {
+            triggered = true;
+            triggerReason = `RSI(14) đạt ${rsi} (dưới ngưỡng ${targetValue} - Quá Bán)`;
+          } else if (rule.condition.operator === '>' && rsi > targetValue) {
+            triggered = true;
+            triggerReason = `RSI(14) đạt ${rsi} (vượt ngưỡng ${targetValue} - Quá Mua)`;
+          }
+          break;
+        }
+
+        case 'EMA_CROSS': {
+          const emaFast = snapshot.ema20;
+          const emaFastPrev = snapshot.ema20Prev;
+          const emaSlow = snapshot.ema50;
+          const emaSlowPrev = snapshot.ema50Prev;
+
+          if (rule.condition.operator === 'CROSS_ABOVE') {
+            if (emaFastPrev <= emaSlowPrev && emaFast > emaSlow) {
+              triggered = true;
+              triggerReason = `EMA 20 (${emaFast.toFixed(2)}) vừa cắt lên trên EMA 50 (${emaSlow.toFixed(2)})`;
+            }
+          } else if (rule.condition.operator === 'CROSS_BELOW') {
+            if (emaFastPrev >= emaSlowPrev && emaFast < emaSlow) {
+              triggered = true;
+              triggerReason = `EMA 20 (${emaFast.toFixed(2)}) vừa cắt xuống dưới EMA 50 (${emaSlow.toFixed(2)})`;
+            }
+          }
+          break;
+        }
+
+        case 'BOLLINGER': {
+          if (rule.condition.operator === 'TOUCH_LOWER' && currentPrice <= snapshot.bbLower) {
+            triggered = true;
+            triggerReason = `Giá chạm dải Bollinger dưới (${snapshot.bbLower.toFixed(2)}) -> Tín hiệu phản hồi tăng`;
+          } else if (rule.condition.operator === 'TOUCH_UPPER' && currentPrice >= snapshot.bbUpper) {
+            triggered = true;
+            triggerReason = `Giá chạm dải Bollinger trên (${snapshot.bbUpper.toFixed(2)}) -> Tín hiệu phản hồi giảm`;
+          }
+          break;
+        }
+
+        case 'DYNAMIC_SWING': {
+          const { swings, currentTrend } = IndicatorService.calculateDynamicSwings(candles);
+          if (swings.length >= 2) {
+            const lastConfirmed = swings[swings.length - 2];
+            if (rule.condition.operator === 'SWING_LOW' && lastConfirmed.type === 'LOW' && currentTrend === 'UP') {
+              triggered = true;
+              triggerReason = `Đã xác nhận tạo ĐÁY nhịp giảm tại ${lastConfirmed.price} -> Bắt đầu nhịp tăng mới`;
+            } else if (rule.condition.operator === 'SWING_HIGH' && lastConfirmed.type === 'HIGH' && currentTrend === 'DOWN') {
+              triggered = true;
+              triggerReason = `Đã xác nhận tạo ĐỈNH nhịp tăng tại ${lastConfirmed.price} -> Bắt đầu nhịp giảm mới`;
+            }
+          }
+          break;
+        }
+
+        case 'WEBHOOK':
+          // Handled via external webhook handler
+          break;
+      }
+
+      if (triggered) {
+        this.lastTriggerTimes.set(rule.id, Date.now());
+        this.executeTradeForRule(rule, triggerReason, currentPrice);
+      }
+    }
+  }
+
+  private executeTradeForRule(rule: AutomationRule, reason: string, triggerPrice: number) {
+    const order = mt5Bridge.openOrder({
+      symbol: rule.symbol,
+      type: rule.action,
+      lot: rule.lot,
+      slPips: rule.slPips,
+      tpPips: rule.tpPips,
+      trailingStopPips: rule.trailingStopPips,
+      ruleId: rule.id,
+      ruleName: rule.name
+    });
+
+    const actionText = rule.action === 'BUY' ? '🟢 MUA (BUY)' : '🔴 BÁN (SELL)';
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'ORDER',
+      title: `🤖 Bot Vào Lệnh Tự Động: ${rule.symbol}`,
+      message: `Khớp lệnh ${actionText} ${rule.lot} lot ${rule.symbol} tại ${order.openPrice}.
+• Yêu cầu: "${rule.name}"
+• Lý do kích hoạt: ${reason}
+• Cắt lỗ (SL): ${order.sl || 'Không'} | Chốt lời (TP): ${order.tp || 'Không'}`,
+      symbol: rule.symbol,
+      orderId: order.id,
+      data: { order, rule },
+      timestamp: Date.now()
+    };
+
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+  }
+
+  handleTradingViewWebhook(payload: {
+    secret?: string;
+    ticker: string;
+    action: 'BUY' | 'SELL' | 'CLOSE';
+    lot?: number;
+    sl_pips?: number;
+    tp_pips?: number;
+    message?: string;
+  }) {
+    // Validate secret if configured
+    if (payload.secret && payload.secret !== CONFIG.WEBHOOK_SECRET) {
+      throw new Error('Sai mã bí mật Webhook secret');
+    }
+
+    const symbol = payload.ticker.replace('/', '').toUpperCase() as TradingSymbol;
+    if (!CONFIG.SYMBOLS[symbol]) {
+      throw new Error(`Cặp giao dịch ${payload.ticker} không được hỗ trợ`);
+    }
+
+    if (payload.action === 'CLOSE') {
+      const closed = mt5Bridge.closeAllOrders(`TradingView Webhook Alert: ${payload.message || 'Chốt vị thế'}`);
+      const msg: BotMessage = {
+        id: uuidv4(),
+        type: 'INFO',
+        title: `⚡ TradingView Webhook: Đóng Lệnh ${symbol}`,
+        message: `Đã đóng ${closed.length} vị thế theo tín hiệu từ TradingView PineScript.`,
+        symbol,
+        timestamp: Date.now()
+      };
+      db.addBotMessage(msg);
+      this.emit('botMessage', msg);
+      return { success: true, closedCount: closed.length };
+    }
+
+    // Find any active rule matching this webhook
+    const matchingRule = db.getAllRules().find(r => r.symbol === symbol && r.indicator === 'WEBHOOK' && r.isActive);
+
+    const lot = payload.lot || matchingRule?.lot || 0.1;
+    const slPips = payload.sl_pips || matchingRule?.slPips || 25;
+    const tpPips = payload.tp_pips || matchingRule?.tpPips || 50;
+
+    const order = mt5Bridge.openOrder({
+      symbol,
+      type: payload.action,
+      lot,
+      slPips,
+      tpPips,
+      ruleId: matchingRule?.id,
+      ruleName: matchingRule?.name || 'TradingView Webhook'
+    });
+
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'SIGNAL',
+      title: `⚡ Tín Hiệu TradingView Khớp Lệnh: ${symbol}`,
+      message: `Nhận Webhook PineScript Alert! Khớp lệnh ${payload.action} ${lot} lot tại ${order.openPrice}.
+Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Alert'}"`,
+      symbol,
+      orderId: order.id,
+      data: { order, payload },
+      timestamp: Date.now()
+    };
+
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+    return { success: true, order };
+  }
+
+  private generatePeriodicAnalysis() {
+    const symbol: TradingSymbol = 'XAUUSD';
+    const snapshot = marketData.getIndicators(symbol, 'M1');
+    const price = marketData.getCurrentPrice(symbol);
+
+    let trendDescription = 'Đi ngang (Sideway)';
+    if (snapshot.ema20 > snapshot.ema50) {
+      trendDescription = 'Tăng điểm ngắn hạn (EMA20 > EMA50)';
+    } else if (snapshot.ema20 < snapshot.ema50) {
+      trendDescription = 'Điều chỉnh giảm (EMA20 < EMA50)';
+    }
+
+    let rsiState = 'Vùng cân bằng';
+    if (snapshot.rsi14 < 35) rsiState = 'Gần vùng quá bán (RSI < 35) - Cơ hội MUA canh đảo chiều';
+    else if (snapshot.rsi14 > 65) rsiState = 'Gần vùng quá mua (RSI > 65) - Cảnh báo kháng cự';
+
+    const msg: BotMessage = {
+      id: uuidv4(),
+      type: 'ANALYSIS',
+      title: `📊 Phân Tích Kỹ Thuật Tự Động: ${symbol}`,
+      message: `Cập nhật thị trường ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
+• Giá hiện tại: ${price.lastPrice} (Bid: ${price.bid} | Ask: ${price.ask})
+• RSI 14: ${snapshot.rsi14} (${rsiState})
+• Xu hướng M1: ${trendDescription}
+• Bollinger Bands: [${snapshot.bbLower.toFixed(2)} - ${snapshot.bbUpper.toFixed(2)}]`,
+      symbol,
+      data: { snapshot, price },
+      timestamp: Date.now()
+    };
+
+    db.addBotMessage(msg);
+    this.emit('botMessage', msg);
+  }
+
+  handleUserChatMessage(userText: string): BotMessage {
+    const text = userText.trim().toLowerCase();
+    let replyTitle = '🤖 Trợ Lý Bot Exness';
+    let replyContent = '';
+
+    // Record user message
+    const userMsg: BotMessage = {
+      id: uuidv4(),
+      type: 'USER',
+      title: '👤 Bạn',
+      message: userText,
+      timestamp: Date.now()
+    };
+    db.addBotMessage(userMsg);
+    this.emit('botMessage', userMsg);
+
+    if (text.includes('bật bot') || text.includes('start') || text.includes('resume')) {
+      this.setBotActive(true);
+      replyContent = 'Đã BẬT hệ thống quét và giao dịch tự động. Bot đang theo dõi các cặp tiền tệ và tín hiệu chỉ báo.';
+    } else if (text.includes('tắt bot') || text.includes('dừng bot') || text.includes('pause') || text.includes('stop')) {
+      this.setBotActive(false);
+      replyContent = 'Đã TẠM DỪNG hệ thống giao dịch tự động. Các vị thế hiện tại vẫn được giữ nguyên cho đến khi chạm SL/TP hoặc đóng thủ công.';
+    } else if (text.includes('đóng hết') || text.includes('đóng tất cả') || text.includes('close all')) {
+      const closed = mt5Bridge.closeAllOrders('Đóng khẩn cấp theo lệnh người dùng trong chat');
+      replyContent = `Đã đóng khẩn cấp toàn bộ ${closed.length} vị thế đang mở.`;
+    } else if (text.includes('trạng thái') || text.includes('status') || text.includes('tài khoản')) {
+      const acc = mt5Bridge.getAccountInfo();
+      replyContent = `Trạng thái tài khoản Exness (${acc.server}):
+• Số dư (Balance): $${acc.balance.toLocaleString()} USD
+• Tài sản (Equity): $${acc.equity.toLocaleString()} USD
+• Trạng thái Bot: ${acc.botActive ? 'ĐANG CHẠY 🟢' : 'TẠM DỪNG ⏸️'}
+• Vị thế mở: ${acc.openPositionsCount} lệnh (PnL: ${acc.floatingPnl >= 0 ? '+' : ''}$${acc.floatingPnl} USD)`;
+    } else if (text.includes('bật thông báo đỉnh đáy') || text.includes('bật đỉnh đáy')) {
+      this.setSwingAlertsActive(true);
+      replyContent = 'Đã BẬT thông báo tự động khi tạo Đỉnh/Đáy nhịp sóng. Bot sẽ tự động gửi tin nhắn phân tích lên chat ngay khi có Đỉnh hoặc Đáy mới được xác nhận.';
+    } else if (text.includes('tắt thông báo đỉnh đáy') || text.includes('tắt đỉnh đáy')) {
+      this.setSwingAlertsActive(false);
+      replyContent = 'Đã TẮT thông báo tự động khi tạo Đỉnh/Đáy nhịp sóng.';
+    } else if (text.includes('đỉnh đáy') || text.includes('nhịp') || text.includes('swing')) {
+      const xauRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('XAUUSD', 'M1', 100));
+      const eurRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('EURUSD', 'M1', 100));
+      const btcRes = IndicatorService.calculateDynamicSwings(marketData.getCandles('BTCUSD', 'M1', 100));
+
+      const formatSwingStatus = (sym: string, res: any) => {
+        const last = res.swings.length >= 2 ? res.swings[res.swings.length - 2] : null;
+        const trend = res.currentTrend === 'UP' ? '📈 TĂNG (Tìm Đỉnh)' : '📉 GIẢM (Tìm Đáy)';
+        const lastStr = last ? `${last.type === 'HIGH' ? '🔻 Đỉnh' : '🔺 Đáy'} tại ${last.price}` : '---';
+        return `• ${sym} (M1): Đang ở nhịp ${trend} | Chốt gần nhất: ${lastStr}`;
+      };
+
+      replyTitle = '⚡ Tổng Hợp Nhịp Đỉnh Đáy (M1)';
+      replyContent = `Trạng thái nhịp sóng các cặp chính:
+${formatSwingStatus('XAU/USD', xauRes)}
+${formatSwingStatus('EUR/USD', eurRes)}
+${formatSwingStatus('BTC/USD', btcRes)}
+Trạng thái chuông báo chat: ${this.swingAlertsActive ? 'ĐANG BẬT 🟢' : 'TẠM TẮT ⏸️'}
+(Bot luôn tự động bắn thông báo lên chat mỗi khi tạo đỉnh đáy thành công)`;
+    } else if (text.includes('vàng') || text.includes('xau') || text.includes('gold')) {
+      const snap = marketData.getIndicators('XAUUSD', 'M1');
+      const p = marketData.getCurrentPrice('XAUUSD');
+      replyContent = `XAU/USD: Giá ${p.lastPrice}. RSI: ${snap.rsi14}. Bollinger: [${snap.bbLower.toFixed(2)} - ${snap.bbUpper.toFixed(2)}]. EMA20: ${snap.ema20.toFixed(2)}.`;
+    } else {
+      replyContent = `Chào bạn! Tôi là Bot Auto Trade Exness. Bạn có thể gõ các lệnh nhanh:
+- "nhịp đỉnh đáy": Xem ngay trạng thái đỉnh đáy hiện tại.
+- "bật bot" hoặc "tắt bot": Điều khiển hệ thống vào lệnh tự động.
+- "bật thông báo đỉnh đáy" hoặc "tắt thông báo đỉnh đáy".
+- "trạng thái": Xem số dư tài khoản và các vị thế.
+- "đóng hết lệnh": Chốt khẩn cấp tất cả vị thế.
+- "phân tích vàng": Cập nhật tín hiệu thị trường Vàng XAU/USD.`;
+    }
+
+    const replyMsg: BotMessage = {
+      id: uuidv4(),
+      type: 'INFO',
+      title: replyTitle,
+      message: replyContent,
+      timestamp: Date.now()
+    };
+
+    db.addBotMessage(replyMsg);
+    this.emit('botMessage', replyMsg);
+    return replyMsg;
+  }
+}
+
+export const botEngine = new BotEngineService();
