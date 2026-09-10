@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { CandlestickPattern, CandleDefinition, PatternCategory, PatternSignal, CandleDirection, BodySizeMode, WickSizeMode } from '../../types';
+import { CandlestickPattern, CandleDefinition, PatternCategory, CandleDirection, BodySizeMode, WickSizeMode } from '../../types';
 import { CandleVisual } from './CandleVisual';
 import { X, Plus, Trash2, CheckCircle2, Sliders, Info, Eye } from 'lucide-react';
 
@@ -30,7 +30,6 @@ export const PatternModal: React.FC<PatternModalProps> = ({
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState<PatternCategory>('SINGLE');
-  const [signal, setSignal] = useState<PatternSignal>('BUY');
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [candles, setCandles] = useState<CandleDefinition[]>([]);
@@ -44,7 +43,6 @@ export const PatternModal: React.FC<PatternModalProps> = ({
     if (editingPattern) {
       setName(editingPattern.name);
       setCategory(editingPattern.category);
-      setSignal(editingPattern.signal);
       setDescription(editingPattern.description || '');
       setIsActive(editingPattern.isActive);
       setCandles(JSON.parse(JSON.stringify(editingPattern.candles)));
@@ -52,7 +50,6 @@ export const PatternModal: React.FC<PatternModalProps> = ({
     } else {
       setName('');
       setCategory('SINGLE');
-      setSignal('BUY');
       setDescription('');
       setIsActive(true);
       setCandles([
@@ -152,7 +149,6 @@ export const PatternModal: React.FC<PatternModalProps> = ({
         id: editingPattern?.id,
         name: name.trim(),
         category,
-        signal,
         candleCount: candles.length,
         description: description.trim(),
         candles,
@@ -200,9 +196,9 @@ export const PatternModal: React.FC<PatternModalProps> = ({
         {/* Modal Body - Scrollable */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Top General Info */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Pattern Name */}
-            <div className="md:col-span-1">
+            <div>
               <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                 Tên mô hình nến <span className="text-rose-400">*</span>
               </label>
@@ -214,22 +210,6 @@ export const PatternModal: React.FC<PatternModalProps> = ({
                 placeholder="VD: Hammer Siêu Búa M1"
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-cyan-500 transition"
               />
-            </div>
-
-            {/* Signal Action */}
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                Tín hiệu hành động
-              </label>
-              <select
-                value={signal}
-                onChange={e => setSignal(e.target.value as PatternSignal)}
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-cyan-500 transition"
-              >
-                <option value="BUY">🟢 MUA (BUY) - Tín hiệu tăng</option>
-                <option value="SELL">🔴 BÁN (SELL) - Tín hiệu giảm</option>
-                <option value="NEUTRAL">⚪ LƯỠNG LỰ (NEUTRAL) - Giằng co</option>
-              </select>
             </div>
 
             {/* Number of candles in sequence */}
@@ -279,7 +259,7 @@ export const PatternModal: React.FC<PatternModalProps> = ({
               </span>
             </div>
             <div className="flex items-center justify-center">
-              <CandleVisual candles={candles} signal={signal} size="md" className="border-0 bg-transparent p-0 shadow-none" />
+              <CandleVisual candles={candles} size="md" className="border-0 bg-transparent p-0 shadow-none" />
             </div>
           </div>
 

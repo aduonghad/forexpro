@@ -3,7 +3,7 @@ import { CandleDefinition, PatternSignal } from '../../types';
 
 interface CandleVisualProps {
   candles: CandleDefinition[];
-  signal: PatternSignal;
+  signal?: PatternSignal;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
 }
@@ -45,8 +45,8 @@ export const CandleVisual: React.FC<CandleVisualProps> = ({
           const isDoji = c.direction === 'DOJI';
 
           // Color palette
-          const strokeColor = isDoji ? '#94a3b8' : isGreen ? '#10b981' : '#f43f5e';
-          const fillColor = isDoji ? '#94a3b8' : isGreen ? '#10b981' : '#f43f5e';
+          const strokeColor = isDoji ? '#94a3b8' : isGreen ? '#10b981' : isRed ? '#f43f5e' : '#38bdf8';
+          const fillColor = isDoji ? '#94a3b8' : isGreen ? '#10b981' : isRed ? '#f43f5e' : '#38bdf8';
 
           // Derive proportions from rules
           let upperWickLen = 14;

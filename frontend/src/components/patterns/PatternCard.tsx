@@ -1,7 +1,7 @@
 import React from 'react';
 import { CandlestickPattern, CandleDefinition } from '../../types';
 import { CandleVisual } from './CandleVisual';
-import { Edit2, Trash2, Power, Layers, ArrowUpRight, ArrowDownRight, Minus, Sparkles } from 'lucide-react';
+import { Edit2, Trash2, Power, Layers, Sparkles } from 'lucide-react';
 
 interface PatternCardProps {
   pattern: CandlestickPattern;
@@ -26,28 +26,6 @@ export const PatternCard: React.FC<PatternCardProps> = ({
     }
   };
 
-  const getSignalBadge = (signal: string) => {
-    switch (signal) {
-      case 'BUY':
-        return (
-          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            <ArrowUpRight className="w-3 h-3" /> MUA (BUY)
-          </span>
-        );
-      case 'SELL':
-        return (
-          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30">
-            <ArrowDownRight className="w-3 h-3" /> BÁN (SELL)
-          </span>
-        );
-      default:
-        return (
-          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-500/15 text-slate-300 border border-slate-500/30">
-            <Minus className="w-3 h-3" /> LƯỠNG LỰ
-          </span>
-        );
-    }
-  };
 
   const formatMetricRule = (rule: any, type: 'body' | 'upper' | 'lower') => {
     if (!rule || rule.mode === 'ANY') return 'Tùy ý';
@@ -101,7 +79,6 @@ export const PatternCard: React.FC<PatternCardProps> = ({
                 <Layers className="w-3 h-3 text-cyan-400" />
                 {getCategoryLabel(pattern.category)}
               </span>
-              {getSignalBadge(pattern.signal)}
             </div>
           </div>
 
@@ -124,7 +101,6 @@ export const PatternCard: React.FC<PatternCardProps> = ({
           <div className="w-full flex items-center justify-center py-4 px-4 rounded-xl bg-slate-950/70 border border-slate-800/80 shadow-inner group-hover:border-cyan-500/30 transition-colors">
             <CandleVisual
               candles={pattern.candles}
-              signal={pattern.signal}
               size="md"
               className="border-0 bg-transparent p-0 shadow-none"
             />

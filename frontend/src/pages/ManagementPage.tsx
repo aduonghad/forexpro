@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { CandlestickPattern, PatternCategory, PatternSignal } from '../types';
+import { CandlestickPattern, PatternCategory } from '../types';
 import { api } from '../services/api';
 import { PatternCard } from '../components/patterns/PatternCard';
 import { PatternModal } from '../components/patterns/PatternModal';
 import { TelegramSettings } from '../components/telegram/TelegramSettings';
 import { UsersRoadmap } from '../components/management/UsersRoadmap';
 import { ModulesRoadmap } from '../components/management/ModulesRoadmap';
+import { IndicatorsManagement } from '../components/indicators/IndicatorsManagement';
+import { SignalsManagement } from '../components/signals/SignalsManagement';
 import { 
   Sliders, 
   Bell, 
@@ -18,8 +20,8 @@ import {
   Sparkles, 
   CheckCircle2, 
   Layers, 
-  TrendingUp, 
-  TrendingDown,
+  Activity,
+  Zap,
   ArrowLeft,
   LogOut,
   ShieldCheck
@@ -31,12 +33,12 @@ interface ManagementPageProps {
 }
 
 export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading, onLogoutAdmin }) => {
-  const [activeSection, setActiveSection] = useState<'patterns' | 'telegram' | 'users' | 'modules'>('patterns');
+  const [activeSection, setActiveSection] = useState<'patterns' | 'indicators' | 'signals' | 'telegram' | 'users' | 'modules'>('patterns');
 
   // Pattern states
   const [patterns, setPatterns] = useState<CandlestickPattern[]>([]);
   const [isLoadingPatterns, setIsLoadingPatterns] = useState(true);
-  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'SINGLE' | 'DOUBLE' | 'TRIPLE' | 'MULTI' | 'BUY' | 'SELL'>('ALL');
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'SINGLE' | 'DOUBLE' | 'TRIPLE' | 'MULTI'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modal states
@@ -113,13 +115,11 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
 
   // Filter & Search logic
   const filteredPatterns = patterns.filter(p => {
-    // Category or Signal Filter
+    // Category Filter
     if (selectedFilter === 'SINGLE' && p.category !== 'SINGLE') return false;
     if (selectedFilter === 'DOUBLE' && p.category !== 'DOUBLE') return false;
     if (selectedFilter === 'TRIPLE' && p.category !== 'TRIPLE') return false;
     if (selectedFilter === 'MULTI' && p.category !== 'MULTI') return false;
-    if (selectedFilter === 'BUY' && p.signal !== 'BUY') return false;
-    if (selectedFilter === 'SELL' && p.signal !== 'SELL') return false;
 
     // Text Search
     if (searchQuery.trim()) {
@@ -133,8 +133,6 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
   const doubleCount = patterns.filter(p => p.category === 'DOUBLE').length;
   const tripleCount = patterns.filter(p => p.category === 'TRIPLE').length;
   const multiCount = patterns.filter(p => p.category === 'MULTI').length;
-  const buyCount = patterns.filter(p => p.signal === 'BUY').length;
-  const sellCount = patterns.filter(p => p.signal === 'SELL').length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
@@ -196,6 +194,36 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
             <span>Mô Hình Nến</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950/80 text-cyan-300">
               {patterns.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveSection('indicators')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              activeSection === 'indicators'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/25'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Chỉ Báo Kỹ Thuật</span>
+            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
+              Params
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveSection('signals')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              activeSection === 'signals'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/25'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Zap className="w-4 h-4 text-amber-300" />
+            <span>Tín Hiệu Giao Dịch</span>
+            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+              Bot Trade
             </span>
           </button>
 
@@ -300,32 +328,6 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
               >
                 Đa Nến ({multiCount})
               </button>
-
-              <div className="w-px h-5 bg-slate-800 mx-1" />
-
-              <button
-                onClick={() => setSelectedFilter('BUY')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${
-                  selectedFilter === 'BUY'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:bg-slate-800'
-                }`}
-              >
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span>MUA ({buyCount})</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedFilter('SELL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${
-                  selectedFilter === 'SELL'
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:bg-slate-800'
-                }`}
-              >
-                <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
-                <span>BÁN ({sellCount})</span>
-              </button>
             </div>
 
             {/* Right: Search & Action Buttons */}
@@ -396,7 +398,13 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
         </div>
       )}
 
-      {/* SECTION 2: TELEGRAM SETTINGS */}
+      {/* SECTION 2: PURE TECHNICAL INDICATORS */}
+      {activeSection === 'indicators' && <IndicatorsManagement />}
+
+      {/* SECTION 3: TRADING SIGNALS (BOT EXECUTION STRATEGIES) */}
+      {activeSection === 'signals' && <SignalsManagement />}
+
+      {/* SECTION 4: TELEGRAM SETTINGS */}
       {activeSection === 'telegram' && <TelegramSettings />}
 
       {/* SECTION 3: USERS & ROLES ROADMAP */}

@@ -13,6 +13,8 @@ import webhookRouter from './routes/webhook.js';
 import botRouter from './routes/bot.js';
 import patternsRouter from './routes/patterns.js';
 import telegramRouter from './routes/telegram.js';
+import indicatorsRouter from './routes/indicators.js';
+import signalsRouter from './routes/signals.js';
 import { telegramService } from './services/telegramService.js';
 
 const app = express();
@@ -27,6 +29,8 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/bot', botRouter);
 app.use('/api/patterns', patternsRouter);
 app.use('/api/telegram', telegramRouter);
+app.use('/api/indicators', indicatorsRouter);
+app.use('/api/signals', signalsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -119,6 +119,39 @@ export class IndicatorService {
   }
 
   /**
+   * Calculate MACD (Moving Average Convergence Divergence)
+   */
+  static calculateMACD(prices: number[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9) {
+    const fastEMA = this.calculateEMA(prices, fastPeriod);
+    const slowEMA = this.calculateEMA(prices, slowPeriod);
+    const macdLine: number[] = [];
+
+    for (let i = 0; i < prices.length; i++) {
+      if (isNaN(fastEMA[i]) || isNaN(slowEMA[i])) {
+        macdLine.push(NaN);
+      } else {
+        macdLine.push(fastEMA[i] - slowEMA[i]);
+      }
+    }
+
+    const validStart = macdLine.findIndex(v => !isNaN(v));
+    const validMacd = validStart >= 0 ? macdLine.slice(validStart) : [];
+    const validSignal = this.calculateEMA(validMacd, signalPeriod);
+    const signalLine: number[] = new Array(validStart >= 0 ? validStart : 0).fill(NaN).concat(validSignal);
+    const histogram: number[] = [];
+
+    for (let i = 0; i < prices.length; i++) {
+      if (isNaN(macdLine[i]) || isNaN(signalLine[i])) {
+        histogram.push(0);
+      } else {
+        histogram.push(macdLine[i] - signalLine[i]);
+      }
+    }
+
+    return { macdLine, signalLine, histogram };
+  }
+
+  /**
    * Get latest indicators for a candle series
    */
   static getSnapshot(candles: Candle[]) {
@@ -135,6 +168,10 @@ export class IndicatorService {
         bbUpper: p,
         bbMiddle: p,
         bbLower: p,
+        macdLine: 0,
+        macdSignal: 0,
+        macdHistogram: 0,
+        macdHistogramPrev: 0,
       };
     }
 
@@ -142,6 +179,7 @@ export class IndicatorService {
     const ema20 = this.calculateEMA(closes, 20);
     const ema50 = this.calculateEMA(closes, 50);
     const bb = this.calculateBollingerBands(closes, 20, 2);
+    const macd = this.calculateMACD(closes, 12, 26, 9);
 
     const lastIdx = closes.length - 1;
     const prevIdx = lastIdx - 1;
@@ -156,6 +194,10 @@ export class IndicatorService {
       bbUpper: Number(bb.upper[lastIdx]?.toFixed(5)) || closes[lastIdx],
       bbMiddle: Number(bb.middle[lastIdx]?.toFixed(5)) || closes[lastIdx],
       bbLower: Number(bb.lower[lastIdx]?.toFixed(5)) || closes[lastIdx],
+      macdLine: Number(macd.macdLine[lastIdx]?.toFixed(5)) || 0,
+      macdSignal: Number(macd.signalLine[lastIdx]?.toFixed(5)) || 0,
+      macdHistogram: Number(macd.histogram[lastIdx]?.toFixed(5)) || 0,
+      macdHistogramPrev: Number(macd.histogram[prevIdx]?.toFixed(5)) || 0,
     };
   }
 

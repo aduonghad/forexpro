@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe } from '../types';
+import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe, IndicatorConfig, TradingSignalConfig } from '../types';
 
 const API_BASE = '/api';
 
@@ -141,6 +141,50 @@ export const api = {
   },
   resetPatterns: async () => {
     const res = await axios.post<{ success: boolean; message: string; data: any[] }>(`${API_BASE}/patterns/reset`);
+    return res.data.data;
+  },
+
+  // Indicator Configurations CRUD
+  getIndicatorConfigs: async () => {
+    const res = await axios.get<{ success: boolean; data: IndicatorConfig[] }>(`${API_BASE}/indicators/config`);
+    return res.data.data;
+  },
+  getIndicatorConfigById: async (id: string) => {
+    const res = await axios.get<{ success: boolean; data: IndicatorConfig }>(`${API_BASE}/indicators/config/${id}`);
+    return res.data.data;
+  },
+  updateIndicatorConfig: async (id: string, config: Partial<IndicatorConfig>) => {
+    const res = await axios.put<{ success: boolean; data: IndicatorConfig }>(`${API_BASE}/indicators/config/${id}`, config);
+    return res.data.data;
+  },
+  resetIndicatorConfigs: async () => {
+    const res = await axios.post<{ success: boolean; message: string; data: IndicatorConfig[] }>(`${API_BASE}/indicators/config/reset`);
+    return res.data.data;
+  },
+
+  // Trading Signals (Combination of Indicators) CRUD
+  getSignals: async () => {
+    const res = await axios.get<{ success: boolean; data: TradingSignalConfig[] }>(`${API_BASE}/signals`);
+    return res.data.data;
+  },
+  getSignalById: async (id: string) => {
+    const res = await axios.get<{ success: boolean; data: TradingSignalConfig }>(`${API_BASE}/signals/${id}`);
+    return res.data.data;
+  },
+  createSignal: async (signal: Partial<TradingSignalConfig>) => {
+    const res = await axios.post<{ success: boolean; data: TradingSignalConfig }>(`${API_BASE}/signals`, signal);
+    return res.data.data;
+  },
+  updateSignal: async (id: string, updates: Partial<TradingSignalConfig>) => {
+    const res = await axios.put<{ success: boolean; data: TradingSignalConfig }>(`${API_BASE}/signals/${id}`, updates);
+    return res.data.data;
+  },
+  deleteSignal: async (id: string) => {
+    const res = await axios.delete<{ success: boolean; message: string }>(`${API_BASE}/signals/${id}`);
+    return res.data;
+  },
+  resetSignals: async () => {
+    const res = await axios.post<{ success: boolean; data: TradingSignalConfig[] }>(`${API_BASE}/signals/reset`);
     return res.data.data;
   },
 

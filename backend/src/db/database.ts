@@ -1,7 +1,277 @@
 import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
-import { AutomationRule, Order, BotMessage, AccountInfo, CandlestickPattern } from '../types/index.js';
+import { AutomationRule, Order, BotMessage, AccountInfo, CandlestickPattern, IndicatorConfig, TradingSignalConfig } from '../types/index.js';
 import { DEFAULT_PATTERNS } from './defaultPatterns.js';
+
+export const DEFAULT_INDICATOR_CONFIGS: IndicatorConfig[] = [
+  {
+    id: 'rsi_14',
+    name: 'RSI (Relative Strength Index)',
+    type: 'RSI',
+    category: 'MOMENTUM',
+    description: 'Chỉ báo dao động động lượng đo lường tốc độ và sự thay đổi của biến động giá theo chu kỳ 14 nến chuẩn Wilder.',
+    isActive: true,
+    timeframe: 'M1',
+    parameters: {
+      period: 14,
+      oversold: 30,
+      overbought: 70
+    },
+    priority: 1,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'ema_cross_20_50',
+    name: 'EMA Cross (Đường Trung Bình Động Luỹ Thừa)',
+    type: 'EMA_CROSS',
+    category: 'TREND',
+    description: 'Hệ thống theo xu hướng kinh điển dựa trên sự tương quan và điểm giao cắt giữa EMA nhanh (20) và EMA chậm (50).',
+    isActive: true,
+    timeframe: 'M1',
+    parameters: {
+      fastPeriod: 20,
+      slowPeriod: 50,
+      trendFilterPeriod: 200
+    },
+    priority: 2,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'bollinger_bands_20_2',
+    name: 'Bollinger Bands (Dải Biến Động Chuẩn 20, 2.0)',
+    type: 'BOLLINGER',
+    category: 'VOLATILITY',
+    description: 'Đo lường độ lệch chuẩn và biên độ biến động giá, cung cấp các dải biên trên (Upper) và biên dưới (Lower).',
+    isActive: true,
+    timeframe: 'M1',
+    parameters: {
+      period: 20,
+      stdDev: 2.0
+    },
+    priority: 3,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'dynamic_swings',
+    name: 'Dynamic Price Action Swings (Cấu Trúc Sóng Đỉnh / Đáy)',
+    type: 'DYNAMIC_SWING',
+    category: 'SUPPORT_RESISTANCE',
+    description: 'Quét tự động các nhịp sóng thị trường, nhận diện cấu trúc Đỉnh (Swing High) và Đáy (Swing Low) kết thúc nhịp sóng.',
+    isActive: true,
+    timeframe: 'M1',
+    parameters: {
+      pivotLookback: 5,
+      minAmplitudePips: 15
+    },
+    priority: 4,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'macd_12_26_9',
+    name: 'MACD (Hội Tụ / Phân Kỳ Trung Bình Động)',
+    type: 'MACD',
+    category: 'MOMENTUM',
+    description: 'Đo lường mối liên hệ giữa hai đường trung bình động hàm mũ để phát hiện xung lực dòng tiền qua histogram và đường tín hiệu.',
+    isActive: true,
+    timeframe: 'M5',
+    parameters: {
+      fastEMA: 12,
+      slowEMA: 26,
+      signalPeriod: 9
+    },
+    priority: 5,
+    updatedAt: Date.now()
+  }
+];
+
+export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
+  {
+    id: 'sig_gold_reversal_buy',
+    name: 'Bắt Đáy Đảo Chiều Vàng (RSI + Bollinger Bands)',
+    description: 'Kết hợp 2 chỉ báo: RSI chạm vùng quá bán (< 30) đồng thời nến chạm dải dưới Bollinger Bands tạo tín hiệu MUA đảo chiều cực mạnh.',
+    action: 'BUY',
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'RSI',
+        operator: '<',
+        value: 30,
+        description: 'RSI(14) < 30 (Vùng Quá Bán)'
+      },
+      {
+        indicatorType: 'BOLLINGER',
+        operator: 'TOUCH_LOWER',
+        value: 'Lower Band',
+        description: 'Giá chạm dải dưới Bollinger Bands'
+      }
+    ],
+    lot: 0.05,
+    slPips: 30,
+    tpPips: 60,
+    trailingStopPips: 15,
+    maxOpenPositions: 1,
+    cooldownSeconds: 60,
+    isActive: true,
+    totalTriggers: 8,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 45,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'sig_gold_reject_sell',
+    name: 'Chốt Đỉnh Đảo Chiều Vàng (RSI + Bollinger Bands)',
+    description: 'Kết hợp 2 chỉ báo: RSI vượt vùng quá mua (> 70) đồng thời nến chạm dải trên Bollinger Bands tạo tín hiệu BÁN đảo chiều giảm.',
+    action: 'SELL',
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'RSI',
+        operator: '>',
+        value: 70,
+        description: 'RSI(14) > 70 (Vùng Quá Mua)'
+      },
+      {
+        indicatorType: 'BOLLINGER',
+        operator: 'TOUCH_UPPER',
+        value: 'Upper Band',
+        description: 'Giá chạm dải trên Bollinger Bands'
+      }
+    ],
+    lot: 0.05,
+    slPips: 30,
+    tpPips: 60,
+    trailingStopPips: 15,
+    maxOpenPositions: 1,
+    cooldownSeconds: 60,
+    isActive: true,
+    totalTriggers: 6,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 75,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'sig_ema_macd_trend_buy',
+    name: 'Follow Trend Tăng (EMA Cross + MACD Expansion)',
+    description: 'Kết hợp 2 chỉ báo: Giao cắt vàng EMA 20 cắt lên EMA 50 được xác nhận bởi Histogram MACD chuyển giá trị dương.',
+    action: 'BUY',
+    symbol: 'XAUUSD',
+    timeframe: 'M5',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'EMA_CROSS',
+        operator: 'CROSS_ABOVE',
+        value: 'EMA20 > EMA50',
+        description: 'EMA 20 cắt lên trên EMA 50 (Golden Cross)'
+      },
+      {
+        indicatorType: 'MACD',
+        operator: 'HISTOGRAM_POSITIVE',
+        value: 'MACD > Signal',
+        description: 'Histogram MACD chuyển giá trị dương'
+      }
+    ],
+    lot: 0.05,
+    slPips: 40,
+    tpPips: 80,
+    trailingStopPips: 20,
+    maxOpenPositions: 1,
+    cooldownSeconds: 120,
+    isActive: true,
+    totalTriggers: 5,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 180,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'sig_ema_macd_trend_sell',
+    name: 'Follow Trend Giảm (EMA Cross + MACD Contraction)',
+    description: 'Kết hợp 2 chỉ báo: Giao cắt tử thần EMA 20 cắt xuống EMA 50 được xác nhận bởi Histogram MACD chuyển giá trị âm.',
+    action: 'SELL',
+    symbol: 'XAUUSD',
+    timeframe: 'M5',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'EMA_CROSS',
+        operator: 'CROSS_BELOW',
+        value: 'EMA20 < EMA50',
+        description: 'EMA 20 cắt xuống dưới EMA 50 (Death Cross)'
+      },
+      {
+        indicatorType: 'MACD',
+        operator: 'HISTOGRAM_NEGATIVE',
+        value: 'MACD < Signal',
+        description: 'Histogram MACD chuyển giá trị âm'
+      }
+    ],
+    lot: 0.05,
+    slPips: 40,
+    tpPips: 80,
+    trailingStopPips: 20,
+    maxOpenPositions: 1,
+    cooldownSeconds: 120,
+    isActive: true,
+    totalTriggers: 4,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 240,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'sig_dynamic_swing_buy',
+    name: 'Dynamic Swing Tín Hiệu Tạo Đáy (Đơn Chỉ Báo)',
+    description: 'Dựa trên 1 chỉ báo cấu trúc sóng: Xác nhận nhịp tạo Đáy Swing Low hoàn tất để vào lệnh Mua đón đầu con sóng tăng mới.',
+    action: 'BUY',
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'DYNAMIC_SWING',
+        operator: 'SWING_LOW',
+        value: 'Confirmed Trough',
+        description: 'Xác nhận tạo Đáy sóng (Swing Low) thành công'
+      }
+    ],
+    lot: 0.05,
+    slPips: 25,
+    tpPips: 50,
+    trailingStopPips: 15,
+    maxOpenPositions: 1,
+    cooldownSeconds: 90,
+    isActive: true,
+    totalTriggers: 11,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 20,
+    updatedAt: Date.now()
+  },
+  {
+    id: 'sig_dynamic_swing_sell',
+    name: 'Dynamic Swing Tín Hiệu Tạo Đỉnh (Đơn Chỉ Báo)',
+    description: 'Dựa trên 1 chỉ báo cấu trúc sóng: Xác nhận nhịp tạo Đỉnh Swing High hoàn tất để vào lệnh Bán đón đầu con sóng giảm mới.',
+    action: 'SELL',
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    logicOperator: 'AND',
+    conditions: [
+      {
+        indicatorType: 'DYNAMIC_SWING',
+        operator: 'SWING_HIGH',
+        value: 'Confirmed Peak',
+        description: 'Xác nhận tạo Đỉnh sóng (Swing High) thành công'
+      }
+    ],
+    lot: 0.05,
+    slPips: 25,
+    tpPips: 50,
+    trailingStopPips: 15,
+    maxOpenPositions: 1,
+    cooldownSeconds: 90,
+    isActive: true,
+    totalTriggers: 9,
+    lastTriggeredAt: Date.now() - 1000 * 60 * 50,
+    updatedAt: Date.now()
+  }
+];
 
 function getDatabaseEngine(): any {
   // 1. Thử node:sqlite tích hợp sẵn trong Node.js 22+ (chạy native 100% trên cả Windows và Mac, không cần trình biên dịch C++)
@@ -128,6 +398,42 @@ class DatabaseService {
         is_active INTEGER DEFAULT 1,
         is_predefined INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS indicator_configs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT,
+        is_active INTEGER DEFAULT 1,
+        timeframe TEXT NOT NULL,
+        parameters_json TEXT NOT NULL,
+        priority INTEGER DEFAULT 1,
+        buy_condition_json TEXT,
+        sell_condition_json TEXT,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS trading_signals (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        action TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        logic_operator TEXT NOT NULL,
+        conditions_json TEXT NOT NULL,
+        lot REAL NOT NULL,
+        sl_pips REAL NOT NULL,
+        tp_pips REAL NOT NULL,
+        trailing_stop_pips REAL,
+        max_open_positions INTEGER DEFAULT 1,
+        cooldown_seconds INTEGER DEFAULT 45,
+        is_active INTEGER DEFAULT 1,
+        total_triggers INTEGER DEFAULT 0,
+        last_triggered_at INTEGER,
         updated_at INTEGER NOT NULL
       );
     `);
@@ -267,6 +573,22 @@ class DatabaseService {
     if (existingPatterns.count === 0) {
       for (const pattern of DEFAULT_PATTERNS) {
         this.savePattern(pattern);
+      }
+    }
+
+    // Seed default indicator configs if table is empty
+    const existingIndicators = this.prepare('SELECT COUNT(*) as count FROM indicator_configs').get() as { count: number };
+    if (existingIndicators.count === 0) {
+      for (const ind of DEFAULT_INDICATOR_CONFIGS) {
+        this.saveIndicatorConfig(ind);
+      }
+    }
+
+    // Seed default trading signals if table is empty
+    const existingSignals = this.prepare('SELECT COUNT(*) as count FROM trading_signals').get() as { count: number };
+    if (existingSignals.count === 0) {
+      for (const sig of DEFAULT_TRADING_SIGNALS) {
+        this.saveTradingSignal(sig);
       }
     }
   }
@@ -638,6 +960,242 @@ class DatabaseService {
     for (const p of DEFAULT_PATTERNS) {
       this.savePattern(p);
     }
+  }
+
+  // --- Indicators Configuration CRUD ---
+  getAllIndicatorConfigs(): IndicatorConfig[] {
+    const stmt = this.prepare('SELECT * FROM indicator_configs ORDER BY priority ASC');
+    const rows = stmt.all() as any[];
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      category: r.category || 'MOMENTUM',
+      description: r.description,
+      isActive: Boolean(r.is_active),
+      timeframe: r.timeframe,
+      buyCondition: JSON.parse(r.buy_condition_json || '{}'),
+      sellCondition: JSON.parse(r.sell_condition_json || '{}'),
+      parameters: JSON.parse(r.parameters_json || '{}'),
+      priority: Number(r.priority || 1),
+      updatedAt: Number(r.updated_at || Date.now())
+    }));
+  }
+
+  getIndicatorConfigById(id: string): IndicatorConfig | null {
+    const r = this.prepare('SELECT * FROM indicator_configs WHERE id = ?').get(id) as any;
+    if (!r) return null;
+    return {
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      category: r.category || 'MOMENTUM',
+      description: r.description,
+      isActive: Boolean(r.is_active),
+      timeframe: r.timeframe,
+      buyCondition: JSON.parse(r.buy_condition_json || '{}'),
+      sellCondition: JSON.parse(r.sell_condition_json || '{}'),
+      parameters: JSON.parse(r.parameters_json || '{}'),
+      priority: Number(r.priority || 1),
+      updatedAt: Number(r.updated_at || Date.now())
+    };
+  }
+
+  saveIndicatorConfig(config: IndicatorConfig): IndicatorConfig {
+    const stmt = this.prepare(`
+      INSERT INTO indicator_configs (
+        id, name, type, category, description, is_active, timeframe,
+        buy_condition_json, sell_condition_json, parameters_json, priority, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        type = excluded.type,
+        category = excluded.category,
+        description = excluded.description,
+        is_active = excluded.is_active,
+        timeframe = excluded.timeframe,
+        buy_condition_json = excluded.buy_condition_json,
+        sell_condition_json = excluded.sell_condition_json,
+        parameters_json = excluded.parameters_json,
+        priority = excluded.priority,
+        updated_at = excluded.updated_at
+    `);
+
+    stmt.run(
+      config.id,
+      config.name,
+      config.type,
+      config.category || 'MOMENTUM',
+      config.description || '',
+      config.isActive ? 1 : 0,
+      config.timeframe || 'M1',
+      JSON.stringify(config.buyCondition || {}),
+      JSON.stringify(config.sellCondition || {}),
+      JSON.stringify(config.parameters || {}),
+      config.priority || 1,
+      config.updatedAt || Date.now()
+    );
+
+    return config;
+  }
+
+  updateIndicatorConfig(id: string, updates: Partial<IndicatorConfig>): IndicatorConfig {
+    const current = this.getIndicatorConfigById(id);
+    if (!current) throw new Error(`Không tìm thấy cấu hình chỉ báo với ID ${id}`);
+
+    const updated: IndicatorConfig = {
+      ...current,
+      ...updates,
+      updatedAt: Date.now()
+    };
+
+    return this.saveIndicatorConfig(updated);
+  }
+
+  resetIndicatorConfigsToDefault(): IndicatorConfig[] {
+    this.db.exec('DELETE FROM indicator_configs');
+    for (const ind of DEFAULT_INDICATOR_CONFIGS) {
+      this.saveIndicatorConfig(ind);
+    }
+    return this.getAllIndicatorConfigs();
+  }
+
+  // --- Trading Signals CRUD ---
+  getAllTradingSignals(): TradingSignalConfig[] {
+    const stmt = this.prepare('SELECT * FROM trading_signals ORDER BY updated_at DESC');
+    const rows = stmt.all() as any[];
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      description: r.description || '',
+      action: r.action as 'BUY' | 'SELL',
+      symbol: r.symbol,
+      timeframe: r.timeframe,
+      logicOperator: r.logic_operator as 'AND' | 'OR',
+      conditions: JSON.parse(r.conditions_json || '[]'),
+      lot: Number(r.lot),
+      slPips: Number(r.sl_pips),
+      tpPips: Number(r.tp_pips),
+      trailingStopPips: Number(r.trailing_stop_pips || 0),
+      maxOpenPositions: Number(r.max_open_positions || 1),
+      cooldownSeconds: Number(r.cooldown_seconds || 45),
+      isActive: Boolean(r.is_active),
+      totalTriggers: Number(r.total_triggers || 0),
+      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
+      updatedAt: Number(r.updated_at || Date.now())
+    }));
+  }
+
+  getTradingSignalById(id: string): TradingSignalConfig | null {
+    const r = this.prepare('SELECT * FROM trading_signals WHERE id = ?').get(id) as any;
+    if (!r) return null;
+    return {
+      id: r.id,
+      name: r.name,
+      description: r.description || '',
+      action: r.action as 'BUY' | 'SELL',
+      symbol: r.symbol,
+      timeframe: r.timeframe,
+      logicOperator: r.logic_operator as 'AND' | 'OR',
+      conditions: JSON.parse(r.conditions_json || '[]'),
+      lot: Number(r.lot),
+      slPips: Number(r.sl_pips),
+      tpPips: Number(r.tp_pips),
+      trailingStopPips: Number(r.trailing_stop_pips || 0),
+      maxOpenPositions: Number(r.max_open_positions || 1),
+      cooldownSeconds: Number(r.cooldown_seconds || 45),
+      isActive: Boolean(r.is_active),
+      totalTriggers: Number(r.total_triggers || 0),
+      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
+      updatedAt: Number(r.updated_at || Date.now())
+    };
+  }
+
+  saveTradingSignal(signal: TradingSignalConfig): TradingSignalConfig {
+    const stmt = this.prepare(`
+      INSERT INTO trading_signals (
+        id, name, description, action, symbol, timeframe,
+        logic_operator, conditions_json, lot, sl_pips, tp_pips,
+        trailing_stop_pips, max_open_positions, cooldown_seconds,
+        is_active, total_triggers, last_triggered_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        action = excluded.action,
+        symbol = excluded.symbol,
+        timeframe = excluded.timeframe,
+        logic_operator = excluded.logic_operator,
+        conditions_json = excluded.conditions_json,
+        lot = excluded.lot,
+        sl_pips = excluded.sl_pips,
+        tp_pips = excluded.tp_pips,
+        trailing_stop_pips = excluded.trailing_stop_pips,
+        max_open_positions = excluded.max_open_positions,
+        cooldown_seconds = excluded.cooldown_seconds,
+        is_active = excluded.is_active,
+        total_triggers = excluded.total_triggers,
+        last_triggered_at = excluded.last_triggered_at,
+        updated_at = excluded.updated_at
+    `);
+
+    stmt.run(
+      signal.id,
+      signal.name,
+      signal.description || '',
+      signal.action,
+      signal.symbol,
+      signal.timeframe,
+      signal.logicOperator || 'AND',
+      JSON.stringify(signal.conditions || []),
+      signal.lot,
+      signal.slPips,
+      signal.tpPips,
+      signal.trailingStopPips || 0,
+      signal.maxOpenPositions || 1,
+      signal.cooldownSeconds || 45,
+      signal.isActive ? 1 : 0,
+      signal.totalTriggers || 0,
+      signal.lastTriggeredAt || null,
+      signal.updatedAt || Date.now()
+    );
+
+    return signal;
+  }
+
+  updateTradingSignal(id: string, updates: Partial<TradingSignalConfig>): TradingSignalConfig {
+    const current = this.getTradingSignalById(id);
+    if (!current) throw new Error(`Không tìm thấy tín hiệu với ID ${id}`);
+
+    const updated: TradingSignalConfig = {
+      ...current,
+      ...updates,
+      updatedAt: Date.now()
+    };
+
+    return this.saveTradingSignal(updated);
+  }
+
+  deleteTradingSignal(id: string): boolean {
+    const stmt = this.prepare('DELETE FROM trading_signals WHERE id = ?');
+    stmt.run(id);
+    return true;
+  }
+
+  resetTradingSignalsToDefault(): TradingSignalConfig[] {
+    this.db.exec('DELETE FROM trading_signals');
+    for (const sig of DEFAULT_TRADING_SIGNALS) {
+      this.saveTradingSignal(sig);
+    }
+    return this.getAllTradingSignals();
   }
 }
 

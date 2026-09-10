@@ -160,13 +160,64 @@ export interface CandlestickPattern {
   id: string;
   name: string;
   category: PatternCategory;
-  signal: PatternSignal;
+  signal?: PatternSignal;
   candleCount: number;
   description: string;
   candles: CandleDefinition[];
   isActive: boolean;
-  isPredefined: boolean;
+  isPredefined?: boolean;
   createdAt: number;
+  updatedAt: number;
+}
+
+export interface IndicatorConfig {
+  id: string;
+  name: string;
+  type: 'RSI' | 'EMA_CROSS' | 'BOLLINGER' | 'DYNAMIC_SWING' | 'MACD';
+  category: 'MOMENTUM' | 'TREND' | 'VOLATILITY' | 'SUPPORT_RESISTANCE';
+  description: string;
+  isActive: boolean;
+  timeframe: Timeframe;
+  parameters: Record<string, any>;
+  priority?: number;
+  buyCondition?: {
+    operator: string;
+    threshold: number | string;
+    description: string;
+  };
+  sellCondition?: {
+    operator: string;
+    threshold: number | string;
+    description: string;
+  };
+  updatedAt: number;
+}
+
+export interface SignalCondition {
+  indicatorType: 'RSI' | 'EMA_CROSS' | 'BOLLINGER' | 'DYNAMIC_SWING' | 'MACD';
+  operator: string;
+  value?: number | string;
+  description?: string;
+}
+
+export interface TradingSignalConfig {
+  id: string;
+  name: string;
+  description: string;
+  action: 'BUY' | 'SELL';
+  symbol: TradingSymbol | 'ALL';
+  timeframe: Timeframe;
+  logicOperator: 'AND' | 'OR';
+  conditions: SignalCondition[];
+  lot: number;
+  slPips: number;
+  tpPips: number;
+  trailingStopPips?: number;
+  maxOpenPositions: number;
+  cooldownSeconds: number;
+  isActive: boolean;
+  totalTriggers: number;
+  lastTriggeredAt?: number;
   updatedAt: number;
 }
 
