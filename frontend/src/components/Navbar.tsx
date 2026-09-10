@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause } from 'lucide-react';
+import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield } from 'lucide-react';
 import { AccountInfo } from '../types';
 
 interface NavbarProps {
@@ -10,6 +10,7 @@ interface NavbarProps {
   onToggleBot: () => void;
   onResetBalance: () => void;
   activeRulesCount: number;
+  onNavigateAdmin: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +20,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isConnected,
   onToggleBot,
   onResetBalance,
-  activeRulesCount
+  activeRulesCount,
+  onNavigateAdmin
 }) => {
   const pnl = account?.floatingPnl ?? 0;
   const isProfit = pnl >= 0;
@@ -53,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* 2 Main Navigation Menus */}
+          {/* Trader Navigation Menus (2 Main Menus) */}
           <nav className="flex items-center bg-slate-900/80 p-1 rounded-xl border border-slate-800">
             <button
               onClick={() => setActiveTab('dashboard')}
@@ -158,6 +160,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             )}
           </div>
+
+          {/* Admin Portal Gateway Button */}
+          <button
+            onClick={onNavigateAdmin}
+            title="Truy cập Cổng Quản Trị Hệ Thống (/admin)"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 hover:bg-slate-800/80 transition text-[11px] font-semibold shadow-sm group"
+          >
+            <Shield className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400 transition" />
+            <span className="hidden lg:inline">Admin</span>
+          </button>
         </div>
       </div>
     </header>

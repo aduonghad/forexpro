@@ -111,3 +111,93 @@ export interface IndicatorSnapshot {
   bbMiddle: number;
   bbLower: number;
 }
+
+export type PatternCategory = 'SINGLE' | 'DOUBLE' | 'TRIPLE' | 'MULTI';
+export type PatternSignal = 'BUY' | 'SELL' | 'NEUTRAL';
+export type CandleDirection = 'BULLISH' | 'BEARISH' | 'DOJI' | 'ANY';
+
+export type BodySizeMode = 
+  | 'SPECIFIC_VALUE'               // Số cụ thể (pips/points)
+  | 'RATIO_TO_RANGE'               // % thân nến so với tổng chiều dài nến (High - Low)
+  | 'PERCENT_OF_PREVIOUS_BODY'     // % so với thân nến phía trước
+  | 'PERCENT_OF_PREVIOUS_TOTAL'    // % so với tổng chiều dài nến phía trước
+  | 'ANY';                         // Bất kỳ
+
+export type WickSizeMode = 
+  | 'SPECIFIC_VALUE'               // Số cụ thể (pips/points)
+  | 'RATIO_TO_BODY'                // Tỷ lệ râu so với thân nến hiện tại (ví dụ >= 2x thân)
+  | 'PERCENT_OF_RANGE'             // % râu so với toàn bộ nến
+  | 'PERCENT_OF_PREVIOUS_UPPER'    // % so với râu trên nến trước
+  | 'PERCENT_OF_PREVIOUS_LOWER'    // % so với râu dưới nến trước
+  | 'ANY';                         // Bất kỳ
+
+export interface CandleMetricRule {
+  mode: BodySizeMode | WickSizeMode;
+  operator: '>=' | '<=' | '>' | '<' | '=';
+  value: number;
+}
+
+export interface RelativePositionRule {
+  engulfsPrevious?: boolean;
+  higherHigh?: boolean;
+  lowerLow?: boolean;
+  closeAbovePreviousOpen?: boolean;
+  closeBelowPreviousOpen?: boolean;
+  insidePreviousBar?: boolean;
+}
+
+export interface CandleDefinition {
+  position: number;
+  label: string;
+  direction: CandleDirection;
+  body: CandleMetricRule;
+  upperWick: CandleMetricRule;
+  lowerWick: CandleMetricRule;
+  relative?: RelativePositionRule;
+}
+
+export interface CandlestickPattern {
+  id: string;
+  name: string;
+  category: PatternCategory;
+  signal: PatternSignal;
+  candleCount: number;
+  description: string;
+  candles: CandleDefinition[];
+  isActive: boolean;
+  isPredefined: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TelegramConfigStatus {
+  botTokenConfigured: boolean;
+  botTokenMasked: string;
+  chatId: string;
+  notificationsEnabled: boolean;
+  botUsername?: string;
+  botFirstName?: string;
+}
+
+export type UserRole = 'ADMIN' | 'TRADER' | 'VIEWER';
+
+export interface UserItem {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  avatarUrl?: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
+  lastLogin: number;
+}
+
+export interface SystemModule {
+  id: string;
+  name: string;
+  key: string;
+  description: string;
+  status: 'ACTIVE' | 'BETA' | 'COMING_SOON';
+  isEnabled: boolean;
+  iconName: string;
+  badge?: string;
+}

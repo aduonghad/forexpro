@@ -120,5 +120,48 @@ export const api = {
       instructions: string[];
     }>(`${API_BASE}/webhook/config`);
     return res.data;
+  },
+
+  // Candlestick Patterns CRUD
+  getPatterns: async (params?: { category?: string; signal?: string; active?: boolean }) => {
+    const res = await axios.get<{ success: boolean; data: any[] }>(`${API_BASE}/patterns`, { params });
+    return res.data.data;
+  },
+  createPattern: async (pattern: any) => {
+    const res = await axios.post<{ success: boolean; data: any }>(`${API_BASE}/patterns`, pattern);
+    return res.data.data;
+  },
+  updatePattern: async (id: string, pattern: any) => {
+    const res = await axios.put<{ success: boolean; data: any }>(`${API_BASE}/patterns/${id}`, pattern);
+    return res.data.data;
+  },
+  deletePattern: async (id: string) => {
+    const res = await axios.delete<{ success: boolean; message: string }>(`${API_BASE}/patterns/${id}`);
+    return res.data;
+  },
+  resetPatterns: async () => {
+    const res = await axios.post<{ success: boolean; message: string; data: any[] }>(`${API_BASE}/patterns/reset`);
+    return res.data.data;
+  },
+
+  // Telegram Dedicated Management
+  getTelegramFullStatus: async () => {
+    const res = await axios.get<{ success: boolean; data: any }>(`${API_BASE}/telegram/status`);
+    return res.data.data;
+  },
+  toggleTelegramAlerts: async (enabled?: boolean) => {
+    const res = await axios.post<{ success: boolean; data: { notificationsEnabled: boolean; message: string } }>(
+      `${API_BASE}/telegram/toggle`,
+      { enabled }
+    );
+    return res.data.data;
+  },
+  sendTelegramTest: async () => {
+    const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/test`);
+    return res.data;
+  },
+  saveTelegramCredentials: async (botToken: string, chatId: string) => {
+    const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/credentials`, { botToken, chatId });
+    return res.data;
   }
 };

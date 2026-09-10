@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AutomationRule, TradingSymbol, Timeframe, IndicatorType, OrderType, RuleCondition } from '../../types';
 import { X, Sparkles, Check, Sliders, Shield, Zap } from 'lucide-react';
 
@@ -10,6 +11,17 @@ interface RuleModalProps {
 }
 
 export const RuleModal: React.FC<RuleModalProps> = ({ isOpen, onClose, onSave, initialRule }) => {
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState<TradingSymbol>('XAUUSD');
   const [timeframe, setTimeframe] = useState<Timeframe>('M1');
@@ -157,9 +169,11 @@ export const RuleModal: React.FC<RuleModalProps> = ({ isOpen, onClose, onSave, i
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] w-screen h-screen overflow-y-auto overflow-x-hidden bg-black/85 backdrop-blur-md flex items-start justify-center p-4 sm:p-6 animate-fadeIn">
+      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] my-auto">
         {/* Modal Header */}
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-2.5">
@@ -494,6 +508,7 @@ export const RuleModal: React.FC<RuleModalProps> = ({ isOpen, onClose, onSave, i
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

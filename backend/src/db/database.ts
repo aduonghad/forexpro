@@ -1,11 +1,11 @@
-import BetterSqlite from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
-import { AutomationRule, Order, BotMessage, AccountInfo } from '../types/index.js';
+import { AutomationRule, Order, BotMessage, AccountInfo, CandlestickPattern } from '../types/index.js';
+import { DEFAULT_PATTERNS } from './defaultPatterns.js';
 
-function getDatabaseEngine() {
+function getDatabaseEngine(): any {
+  // 1. Thử node:sqlite tích hợp sẵn trong Node.js 22+ (chạy native 100% trên cả Windows và Mac, không cần trình biên dịch C++)
   try {
-    // If running on Node 22+ with node:sqlite
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const sqliteModule = eval('require')('node:sqlite');
     if (sqliteModule && sqliteModule.DatabaseSync) {
@@ -13,7 +13,16 @@ function getDatabaseEngine() {
     }
   } catch (e) {}
 
-  return BetterSqlite;
+  // 2. Thử better-sqlite3 nếu có
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const betterSqlite = eval('require')('better-sqlite3');
+    return betterSqlite;
+  } catch (e) {}
+
+  throw new Error(
+    'Không tìm thấy SQLite engine. Vui lòng sử dụng Node.js v22+ (đã có sẵn node:sqlite) hoặc cài đặt better-sqlite3.'
+  );
 }
 
 const DbEngine: any = getDatabaseEngine();
@@ -25,6 +34,25 @@ class DatabaseService {
     this.db = new DbEngine(CONFIG.DB_PATH);
     this.initTables();
     this.seedDefaultData();
+  }
+
+  // Wrapper chuẩn hoá tham số undefined -> null tương thích 100% trên cả Windows và Mac giữa node:sqlite & better-sqlite3
+  private prepare(sql: string) {
+    const rawStmt = this.db.prepare(sql);
+    return {
+      get: (...args: any[]) => {
+        const sanitized = args.map(a => (a === undefined ? null : a));
+        return rawStmt.get(...sanitized);
+      },
+      all: (...args: any[]) => {
+        const sanitized = args.map(a => (a === undefined ? null : a));
+        return rawStmt.all(...sanitized);
+      },
+      run: (...args: any[]) => {
+        const sanitized = args.map(a => (a === undefined ? null : a));
+        return rawStmt.run(...sanitized);
+      }
+    };
   }
 
   private initTables() {
@@ -88,11 +116,25 @@ class DatabaseService {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS candlestick_patterns (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        signal TEXT NOT NULL,
+        candle_count INTEGER NOT NULL,
+        description TEXT,
+        candles_json TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        is_predefined INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
   private seedDefaultData() {
-    const existingRules = this.db.prepare('SELECT COUNT(*) as count FROM automation_rules').get() as { count: number };
+    const existingRules = this.prepare('SELECT COUNT(*) as count FROM automation_rules').get() as { count: number };
     if (existingRules.count === 0) {
       const now = Date.now();
       const defaultRules: AutomationRule[] = [
@@ -219,11 +261,19 @@ class DatabaseService {
       this.setSetting('login', CONFIG.EXNESS.LOGIN);
       this.setSetting('botActive', 'true');
     }
+
+    // Seed default candlestick patterns if table is empty
+    const existingPatterns = this.prepare('SELECT COUNT(*) as count FROM candlestick_patterns').get() as { count: number };
+    if (existingPatterns.count === 0) {
+      for (const pattern of DEFAULT_PATTERNS) {
+        this.savePattern(pattern);
+      }
+    }
   }
 
   // --- Rules CRUD ---
   getAllRules(): AutomationRule[] {
-    const stmt = this.db.prepare('SELECT * FROM automation_rules ORDER BY created_at DESC');
+    const stmt = this.prepare('SELECT * FROM automation_rules ORDER BY created_at DESC');
     const rows = stmt.all() as any[];
     return rows.map(r => ({
       id: r.id,
@@ -249,7 +299,7 @@ class DatabaseService {
   }
 
   getRuleById(id: string): AutomationRule | null {
-    const stmt = this.db.prepare('SELECT * FROM automation_rules WHERE id = ?');
+    const stmt = this.prepare('SELECT * FROM automation_rules WHERE id = ?');
     const r = stmt.get(id) as any;
     if (!r) return null;
     return {
@@ -276,7 +326,7 @@ class DatabaseService {
   }
 
   saveRule(rule: AutomationRule): AutomationRule {
-    const stmt = this.db.prepare(`
+    const stmt = this.prepare(`
       INSERT INTO automation_rules (
         id, name, symbol, timeframe, indicator, condition_json,
         action, lot, sl_pips, tp_pips, trailing_stop_pips,
@@ -334,33 +384,33 @@ class DatabaseService {
   }
 
   deleteRule(id: string): boolean {
-    const stmt = this.db.prepare('DELETE FROM automation_rules WHERE id = ?');
+    const stmt = this.prepare('DELETE FROM automation_rules WHERE id = ?');
     stmt.run(id);
     return true;
   }
 
   // --- Orders ---
   getOpenOrders(): Order[] {
-    const stmt = this.db.prepare("SELECT * FROM orders WHERE status = 'OPEN' ORDER BY open_time DESC");
+    const stmt = this.prepare("SELECT * FROM orders WHERE status = 'OPEN' ORDER BY open_time DESC");
     const rows = stmt.all() as any[];
     return rows.map(this.mapOrder);
   }
 
   getAllOrders(): Order[] {
-    const stmt = this.db.prepare('SELECT * FROM orders ORDER BY open_time DESC LIMIT 100');
+    const stmt = this.prepare('SELECT * FROM orders ORDER BY open_time DESC LIMIT 100');
     const rows = stmt.all() as any[];
     return rows.map(this.mapOrder);
   }
 
   getOrderById(id: string): Order | null {
-    const stmt = this.db.prepare('SELECT * FROM orders WHERE id = ?');
+    const stmt = this.prepare('SELECT * FROM orders WHERE id = ?');
     const r = stmt.get(id) as any;
     if (!r) return null;
     return this.mapOrder(r);
   }
 
   saveOrder(order: Order): Order {
-    const stmt = this.db.prepare(`
+    const stmt = this.prepare(`
       INSERT INTO orders (
         id, rule_id, rule_name, symbol, type, lot,
         open_price, current_price, close_price, sl, tp,
@@ -437,7 +487,7 @@ class DatabaseService {
 
   // --- Bot Messages ---
   getBotMessages(limit: number = 50): BotMessage[] {
-    const stmt = this.db.prepare('SELECT * FROM bot_messages ORDER BY timestamp DESC LIMIT ?');
+    const stmt = this.prepare('SELECT * FROM bot_messages ORDER BY timestamp DESC LIMIT ?');
     const rows = stmt.all(limit) as any[];
     return rows.reverse().map(r => ({
       id: r.id,
@@ -452,7 +502,7 @@ class DatabaseService {
   }
 
   addBotMessage(msg: BotMessage): BotMessage {
-    const stmt = this.db.prepare(`
+    const stmt = this.prepare(`
       INSERT INTO bot_messages (id, type, title, message, symbol, order_id, data_json, timestamp)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
@@ -471,17 +521,123 @@ class DatabaseService {
 
   // --- Settings ---
   getSetting(key: string): string | null {
-    const stmt = this.db.prepare('SELECT value FROM account_settings WHERE key = ?');
+    const stmt = this.prepare('SELECT value FROM account_settings WHERE key = ?');
     const row = stmt.get(key) as { value: string } | undefined;
     return row ? row.value : null;
   }
 
   setSetting(key: string, value: string) {
-    const stmt = this.db.prepare(`
+    const stmt = this.prepare(`
       INSERT INTO account_settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `);
     stmt.run(key, value);
+  }
+
+  // --- Candlestick Patterns CRUD ---
+  getAllPatterns(filter?: { category?: string; signal?: string; isActive?: boolean }): CandlestickPattern[] {
+    let sql = 'SELECT * FROM candlestick_patterns WHERE 1=1';
+    const params: any[] = [];
+
+    if (filter?.category && filter.category !== 'ALL') {
+      sql += ' AND category = ?';
+      params.push(filter.category);
+    }
+    if (filter?.signal && filter.signal !== 'ALL') {
+      sql += ' AND signal = ?';
+      params.push(filter.signal);
+    }
+    if (filter?.isActive !== undefined) {
+      sql += ' AND is_active = ?';
+      params.push(filter.isActive ? 1 : 0);
+    }
+
+    sql += ' ORDER BY candle_count ASC, name ASC';
+    const stmt = this.prepare(sql);
+    const rows = stmt.all(...params) as any[];
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      category: r.category,
+      signal: r.signal,
+      candleCount: Number(r.candle_count),
+      description: r.description || '',
+      candles: JSON.parse(r.candles_json),
+      isActive: Boolean(r.is_active),
+      isPredefined: Boolean(r.is_predefined),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at)
+    }));
+  }
+
+  getPatternById(id: string): CandlestickPattern | null {
+    const stmt = this.prepare('SELECT * FROM candlestick_patterns WHERE id = ?');
+    const r = stmt.get(id) as any;
+    if (!r) return null;
+    return {
+      id: r.id,
+      name: r.name,
+      category: r.category,
+      signal: r.signal,
+      candleCount: Number(r.candle_count),
+      description: r.description || '',
+      candles: JSON.parse(r.candles_json),
+      isActive: Boolean(r.is_active),
+      isPredefined: Boolean(r.is_predefined),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at)
+    };
+  }
+
+  savePattern(pattern: CandlestickPattern): CandlestickPattern {
+    const stmt = this.prepare(`
+      INSERT INTO candlestick_patterns (
+        id, name, category, signal, candle_count, description,
+        candles_json, is_active, is_predefined, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        category = excluded.category,
+        signal = excluded.signal,
+        candle_count = excluded.candle_count,
+        description = excluded.description,
+        candles_json = excluded.candles_json,
+        is_active = excluded.is_active,
+        is_predefined = excluded.is_predefined,
+        updated_at = excluded.updated_at
+    `);
+
+    stmt.run(
+      pattern.id,
+      pattern.name,
+      pattern.category,
+      pattern.signal,
+      pattern.candleCount,
+      pattern.description || '',
+      JSON.stringify(pattern.candles),
+      pattern.isActive ? 1 : 0,
+      pattern.isPredefined ? 1 : 0,
+      pattern.createdAt || Date.now(),
+      pattern.updatedAt || Date.now()
+    );
+
+    return pattern;
+  }
+
+  deletePattern(id: string): boolean {
+    const stmt = this.prepare('DELETE FROM candlestick_patterns WHERE id = ?');
+    stmt.run(id);
+    return true;
+  }
+
+  resetPatternsToDefault(): void {
+    this.db.exec('DELETE FROM candlestick_patterns');
+    for (const p of DEFAULT_PATTERNS) {
+      this.savePattern(p);
+    }
   }
 }
 

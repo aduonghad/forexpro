@@ -2,12 +2,19 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { TradingSymbol } from './types/index.js';
 
+// backend root directory (parent of src/dist)
+const BACKEND_DIR = typeof __dirname !== 'undefined'
+  ? path.resolve(__dirname, '..')
+  : process.cwd();
+
+// Load environment variables from process.cwd() or backend directory
 dotenv.config();
+dotenv.config({ path: path.resolve(BACKEND_DIR, '.env') });
 
 export const CONFIG = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3001,
   WS_PATH: '/ws',
-  DB_PATH: path.resolve(process.cwd(), 'trading.db'),
+  DB_PATH: process.env.DB_PATH || path.resolve(BACKEND_DIR, 'trading.db'),
   WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || 'exness-pro-secret-2026',
 
   // Telegram Bot Config

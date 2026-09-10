@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Copy, Check, ExternalLink, Zap, HelpCircle } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -11,6 +12,17 @@ export const TradingViewGuideModal: React.FC<TradingViewGuideModalProps> = ({ is
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
   const [config, setConfig] = useState<{ webhookUrl: string; secret: string; samplePayload: any; instructions: string[] } | null>(null);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -42,9 +54,9 @@ export const TradingViewGuideModal: React.FC<TradingViewGuideModalProps> = ({ is
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] w-screen h-screen overflow-y-auto overflow-x-hidden bg-black/85 backdrop-blur-md flex items-start justify-center p-4 sm:p-6 animate-fadeIn">
+      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] my-auto">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-2.5">
@@ -65,19 +77,21 @@ export const TradingViewGuideModal: React.FC<TradingViewGuideModalProps> = ({ is
         <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
           {/* Step 1: Webhook URL */}
           <div>
-            <label className="block font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-              <span>1. Webhook URL (Dán vào mục Webhook URL trên Alert TradingView)</span>
+            <label className="text-slate-300 font-semibold block mb-1">
+              1. Địa Chỉ Webhook URL (Dán vào mục Webhook URL trên TradingView)
             </label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 readOnly
                 value={webhookUrl}
-                className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 font-mono text-cyan-300 text-xs select-all"
+                className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 font-mono text-cyan-400 focus:outline-none"
               />
               <button
                 onClick={() => copyToClipboard(webhookUrl, 'URL')}
-                className="px-3.5 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 flex items-center gap-1.5 font-semibold transition"
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+                  copiedUrl ? 'bg-emerald-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                }`}
               >
                 {copiedUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedUrl ? 'Đã sao chép' : 'Sao chép'}</span>
@@ -85,28 +99,30 @@ export const TradingViewGuideModal: React.FC<TradingViewGuideModalProps> = ({ is
             </div>
           </div>
 
-          {/* Step 2: Sample JSON Payload */}
+          {/* Step 2: Message Payload */}
           <div>
-            <label className="block font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-              <span>2. Nội Dung Cảnh Báo (Dán vào ô Message của Alert)</span>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-slate-300 font-semibold">
+                2. Cấu Trúc Bản Tin (Dán vào ô Message của Alert trên TradingView)
+              </label>
               <button
                 onClick={() => copyToClipboard(jsonString, 'JSON')}
-                className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono text-[11px]"
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
               >
-                {copiedJson ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedJson ? 'Đã sao chép JSON' : 'Sao chép mẫu'}</span>
+                {copiedJson ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedJson ? 'Đã chép' : 'Sao chép JSON'}</span>
               </button>
-            </label>
-            <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-amber-300/90 text-[11.5px] overflow-x-auto">
+            </div>
+            <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-slate-300 overflow-x-auto text-[11px] leading-relaxed">
               {jsonString}
             </pre>
           </div>
 
-          {/* Step 3: Instructions Walkthrough */}
-          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2 text-slate-300">
-            <h4 className="font-bold text-slate-100 flex items-center gap-1.5 mb-2">
-              <HelpCircle className="w-4 h-4 text-cyan-400" /> Các Bước Thiết Lập Trên TradingView
-            </h4>
+          {/* Step 3: Instructions */}
+          <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-slate-400 font-semibold uppercase tracking-wider text-[10px] block mb-2">
+              Các bước thực hiện nhanh trên TradingView:
+            </span>
             <ol className="space-y-1.5 list-decimal list-inside text-[11.5px] text-slate-300 leading-relaxed">
               <li>Mở biểu đồ bất kỳ trên TradingView (ví dụ: <strong className="text-white">XAUUSD</strong> hoặc <strong className="text-white">EURUSD</strong>).</li>
               <li>Nhấn tổ hợp phím <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">Alt + A</kbd> để tạo Cảnh Báo mới.</li>
@@ -127,6 +143,7 @@ export const TradingViewGuideModal: React.FC<TradingViewGuideModalProps> = ({ is
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

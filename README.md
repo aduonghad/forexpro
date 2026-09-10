@@ -37,23 +37,49 @@ Hệ thống Web App tự động giao dịch Forex & Crypto trên sàn **Exness
 
 ---
 
-## 🚀 Hướng Dẫn Khởi Chạy
+## 🚀 Hướng Dẫn Khởi Chạy (Cross-Platform: Windows & macOS)
 
-Chỉ cần chạy lệnh duy nhất từ thư mục gốc:
+### Cách 1: Khởi chạy 1-Click (Khuyên dùng)
 
+- **Trên Windows**:
+  - Nhấp đúp chuột vào file `start.bat`
+  - Hoặc mở PowerShell trong thư mục dự án và gõ:
+    ```powershell
+    .\start.ps1
+    ```
+  *(Script trên Windows sẽ tự động kiểm tra Node.js, giải phóng cổng 3001/5173 và tự động cài đặt các dependencies còn thiếu).*
+
+- **Trên macOS / Linux**:
+  - Chạy lệnh:
+    ```bash
+    ./start.sh
+    ```
+  *(Script trên macOS sẽ tự động giải phóng port, kiểm tra môi trường và khởi động song song cả 2 tiến trình).*
+
+---
+
+### Cách 2: Khởi chạy chuẩn bằng npm (Hoạt động trên cả Windows & Mac)
+
+Từ thư mục gốc dự án:
 ```bash
-./start.sh
+# Cài đặt toàn bộ thư viện (nếu mới clone về)
+npm run install:all
+
+# Khởi động cả Backend & Frontend
+npm start
 ```
 
-Hoặc chạy từng phần riêng biệt:
+---
 
-### Chạy Backend (Cổng 3001)
+### Cách 3: Chạy từng phần riêng biệt (Dành cho lập trình viên)
+
+#### Chạy Backend (Cổng 3001)
 ```bash
 cd backend
 npm run dev
 ```
 
-### Chạy Frontend (Cổng 5173)
+#### Chạy Frontend (Cổng 5173)
 ```bash
 cd frontend
 npm run dev

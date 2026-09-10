@@ -2,12 +2,47 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { DashboardPage } from './pages/DashboardPage';
 import { AutomationsPage } from './pages/AutomationsPage';
+import { ManagementPage } from './pages/ManagementPage';
+import { AdminAuthModal } from './components/management/AdminAuthModal';
 import { api } from './services/api';
 import { wsClient } from './services/websocket';
 import { AccountInfo, Order, AutomationRule, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe } from './types';
 
 export const App: React.FC = () => {
+  // Navigation & Routing state
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  });
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('exness_admin_auth') === 'true';
+  });
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'automations'>('dashboard');
+
+  // Handle browser back/forward navigation
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setIsAdminRoute(window.location.pathname.startsWith('/admin'));
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
+  const navigateToAdmin = () => {
+    window.history.pushState(null, '', '/admin');
+    setIsAdminRoute(true);
+  };
+
+  const navigateToTrading = () => {
+    window.history.pushState(null, '', '/');
+    setIsAdminRoute(false);
+  };
+
+  const handleAdminLogout = () => {
+    sessionStorage.removeItem('exness_admin_auth');
+    setIsAdminAuthenticated(false);
+    navigateToTrading();
+  };
 
   // Core system state
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -227,6 +262,27 @@ export const App: React.FC = () => {
 
   const activeRulesCount = rules.filter(r => r.isActive).length;
 
+  // Render Admin View if current path is /admin
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#080d1a] text-slate-100">
+        {!isAdminAuthenticated ? (
+          <AdminAuthModal
+            onSuccess={() => setIsAdminAuthenticated(true)}
+            onCancel={navigateToTrading}
+          />
+        ) : (
+          <main className="flex-1 py-4">
+            <ManagementPage
+              onBackToTrading={navigateToTrading}
+              onLogoutAdmin={handleAdminLogout}
+            />
+          </main>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#080d1a] text-slate-100">
       {/* Top Navigation */}
@@ -238,6 +294,7 @@ export const App: React.FC = () => {
         onToggleBot={handleToggleBot}
         onResetBalance={handleResetBalance}
         activeRulesCount={activeRulesCount}
+        onNavigateAdmin={navigateToAdmin}
       />
 
       {/* Main Views */}
