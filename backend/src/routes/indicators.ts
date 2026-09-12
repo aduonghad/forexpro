@@ -4,9 +4,9 @@ import { db } from '../db/database.js';
 const router = Router();
 
 // GET /api/indicators/config - List all indicator signal configurations
-router.get('/config', (req: Request, res: Response) => {
+router.get('/config', async (req: Request, res: Response) => {
   try {
-    const configs = db.getAllIndicatorConfigs();
+    const configs = await db.getAllIndicatorConfigs();
     res.json({ success: true, data: configs });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -14,10 +14,10 @@ router.get('/config', (req: Request, res: Response) => {
 });
 
 // GET /api/indicators/config/:id
-router.get('/config/:id', (req: Request, res: Response) => {
+router.get('/config/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const config = db.getIndicatorConfigById(id);
+    const config = await db.getIndicatorConfigById(id);
     if (!config) {
       return res.status(404).json({ success: false, error: 'Không tìm thấy cấu hình chỉ báo này' });
     }
@@ -28,11 +28,11 @@ router.get('/config/:id', (req: Request, res: Response) => {
 });
 
 // PUT /api/indicators/config/:id - Update indicator settings & signal conditions
-router.put('/config/:id', (req: Request, res: Response) => {
+router.put('/config/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
     const updates = req.body;
-    const updated = db.updateIndicatorConfig(id, updates);
+    const updated = await db.updateIndicatorConfig(id, updates);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -40,9 +40,9 @@ router.put('/config/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/indicators/config/reset - Reset indicator settings to default
-router.post('/config/reset', (req: Request, res: Response) => {
+router.post('/config/reset', async (req: Request, res: Response) => {
   try {
-    const resetList = db.resetIndicatorConfigsToDefault();
+    const resetList = await db.resetIndicatorConfigsToDefault();
     res.json({ success: true, data: resetList });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

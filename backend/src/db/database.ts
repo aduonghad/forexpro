@@ -1,7 +1,26 @@
+import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
-import { AutomationRule, Order, BotMessage, AccountInfo, CandlestickPattern, IndicatorConfig, TradingSignalConfig } from '../types/index.js';
+import {
+  AutomationRule,
+  Order,
+  BotMessage,
+  CandlestickPattern,
+  IndicatorConfig,
+  TradingSignalConfig,
+  User
+} from '../types/index.js';
 import { DEFAULT_PATTERNS } from './defaultPatterns.js';
+import {
+  RuleModel,
+  OrderModel,
+  BotMessageModel,
+  SettingModel,
+  PatternModel,
+  IndicatorConfigModel,
+  TradingSignalModel,
+  UserModel
+} from './schemas.js';
 
 export const DEFAULT_INDICATOR_CONFIGS: IndicatorConfig[] = [
   {
@@ -273,176 +292,56 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
   }
 ];
 
-function getDatabaseEngine(): any {
-  // 1. Thử node:sqlite tích hợp sẵn trong Node.js 22+ (chạy native 100% trên cả Windows và Mac, không cần trình biên dịch C++)
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sqliteModule = eval('require')('node:sqlite');
-    if (sqliteModule && sqliteModule.DatabaseSync) {
-      return sqliteModule.DatabaseSync;
-    }
-  } catch (e) {}
-
-  // 2. Thử better-sqlite3 nếu có
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const betterSqlite = eval('require')('better-sqlite3');
-    return betterSqlite;
-  } catch (e) {}
-
-  throw new Error(
-    'Không tìm thấy SQLite engine. Vui lòng sử dụng Node.js v22+ (đã có sẵn node:sqlite) hoặc cài đặt better-sqlite3.'
-  );
+function cleanDoc<T>(doc: any): T | null {
+  if (!doc) return null;
+  const obj = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
+  delete obj._id;
+  delete obj.__v;
+  return obj as T;
 }
 
-const DbEngine: any = getDatabaseEngine();
+function cleanDocs<T>(docs: any[]): T[] {
+  return docs.map(d => {
+    const obj = typeof d.toObject === 'function' ? d.toObject() : { ...d };
+    delete obj._id;
+    delete obj.__v;
+    return obj as T;
+  });
+}
 
 class DatabaseService {
-  private db: any;
+  private isConnected: boolean = false;
 
-  constructor() {
-    this.db = new DbEngine(CONFIG.DB_PATH);
-    this.initTables();
-    this.seedDefaultData();
+  async connect(): Promise<void> {
+    if (this.isConnected) return;
+    try {
+      console.log(`🔌 Đang kết nối tới MongoDB: ${CONFIG.MONGODB_URI}...`);
+      await mongoose.connect(CONFIG.MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000
+      });
+      this.isConnected = true;
+      console.log(`✅ Đã kết nối thành công tới MongoDB: ${CONFIG.MONGODB_URI}`);
+
+      await this.seedDefaultData();
+    } catch (err: any) {
+      console.error(`❌ Lỗi kết nối MongoDB: ${err.message}`);
+      throw err;
+    }
   }
 
-  // Wrapper chuẩn hoá tham số undefined -> null tương thích 100% trên cả Windows và Mac giữa node:sqlite & better-sqlite3
-  private prepare(sql: string) {
-    const rawStmt = this.db.prepare(sql);
-    return {
-      get: (...args: any[]) => {
-        const sanitized = args.map(a => (a === undefined ? null : a));
-        return rawStmt.get(...sanitized);
-      },
-      all: (...args: any[]) => {
-        const sanitized = args.map(a => (a === undefined ? null : a));
-        return rawStmt.all(...sanitized);
-      },
-      run: (...args: any[]) => {
-        const sanitized = args.map(a => (a === undefined ? null : a));
-        return rawStmt.run(...sanitized);
-      }
-    };
+  async disconnect(): Promise<void> {
+    if (!this.isConnected) return;
+    await mongoose.disconnect();
+    this.isConnected = false;
+    console.log('🛑 Đã ngắt kết nối MongoDB.');
   }
 
-  private initTables() {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS automation_rules (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        symbol TEXT NOT NULL,
-        timeframe TEXT NOT NULL,
-        indicator TEXT NOT NULL,
-        condition_json TEXT NOT NULL,
-        action TEXT NOT NULL,
-        lot REAL NOT NULL,
-        sl_pips REAL NOT NULL,
-        tp_pips REAL NOT NULL,
-        trailing_stop_pips REAL DEFAULT 0,
-        max_open_positions INTEGER DEFAULT 1,
-        is_active INTEGER DEFAULT 1,
-        total_trades INTEGER DEFAULT 0,
-        win_trades INTEGER DEFAULT 0,
-        total_profit REAL DEFAULT 0,
-        last_triggered_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
+  async seedDefaultData(): Promise<void> {
+    const now = Date.now();
 
-      CREATE TABLE IF NOT EXISTS orders (
-        id TEXT PRIMARY KEY,
-        rule_id TEXT,
-        rule_name TEXT,
-        symbol TEXT NOT NULL,
-        type TEXT NOT NULL,
-        lot REAL NOT NULL,
-        open_price REAL NOT NULL,
-        current_price REAL NOT NULL,
-        close_price REAL,
-        sl REAL,
-        tp REAL,
-        trailing_stop REAL,
-        highest_price REAL,
-        lowest_price REAL,
-        pnl REAL DEFAULT 0,
-        status TEXT NOT NULL,
-        open_time INTEGER NOT NULL,
-        close_time INTEGER,
-        close_reason TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS bot_messages (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        message TEXT NOT NULL,
-        symbol TEXT,
-        order_id TEXT,
-        data_json TEXT,
-        timestamp INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS account_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS candlestick_patterns (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        category TEXT NOT NULL,
-        signal TEXT NOT NULL,
-        candle_count INTEGER NOT NULL,
-        description TEXT,
-        candles_json TEXT NOT NULL,
-        is_active INTEGER DEFAULT 1,
-        is_predefined INTEGER DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS indicator_configs (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        category TEXT NOT NULL,
-        description TEXT,
-        is_active INTEGER DEFAULT 1,
-        timeframe TEXT NOT NULL,
-        parameters_json TEXT NOT NULL,
-        priority INTEGER DEFAULT 1,
-        buy_condition_json TEXT,
-        sell_condition_json TEXT,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS trading_signals (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        action TEXT NOT NULL,
-        symbol TEXT NOT NULL,
-        timeframe TEXT NOT NULL,
-        logic_operator TEXT NOT NULL,
-        conditions_json TEXT NOT NULL,
-        lot REAL NOT NULL,
-        sl_pips REAL NOT NULL,
-        tp_pips REAL NOT NULL,
-        trailing_stop_pips REAL,
-        max_open_positions INTEGER DEFAULT 1,
-        cooldown_seconds INTEGER DEFAULT 45,
-        is_active INTEGER DEFAULT 1,
-        total_triggers INTEGER DEFAULT 0,
-        last_triggered_at INTEGER,
-        updated_at INTEGER NOT NULL
-      );
-    `);
-  }
-
-  private seedDefaultData() {
-    const existingRules = this.prepare('SELECT COUNT(*) as count FROM automation_rules').get() as { count: number };
-    if (existingRules.count === 0) {
-      const now = Date.now();
+    // 1. Seed Default Automation Rules
+    const rulesCount = await RuleModel.countDocuments();
+    if (rulesCount === 0) {
       const defaultRules: AutomationRule[] = [
         {
           id: uuidv4(),
@@ -530,18 +429,17 @@ class DatabaseService {
       ];
 
       for (const rule of defaultRules) {
-        this.saveRule(rule);
+        await this.saveRule(rule);
       }
 
-      // Seed some initial bot messages
-      this.addBotMessage({
+      await this.addBotMessage({
         id: uuidv4(),
         type: 'INFO',
         title: 'Hệ Thống Khởi Động',
-        message: 'Khởi chạy Exness Pro Auto Trading Bot thành công. Kết nối WebSocket hoạt động bình thường.',
+        message: 'Khởi chạy Exness Pro Auto Trading Bot thành công với MongoDB. Kết nối WebSocket hoạt động bình thường.',
         timestamp: now - 1000 * 60 * 15
       });
-      this.addBotMessage({
+      await this.addBotMessage({
         id: uuidv4(),
         type: 'ANALYSIS',
         title: 'Phân Tích Thị Trường XAU/USD',
@@ -549,7 +447,7 @@ class DatabaseService {
         symbol: 'XAUUSD',
         timestamp: now - 1000 * 60 * 10
       });
-      this.addBotMessage({
+      await this.addBotMessage({
         id: uuidv4(),
         type: 'ORDER',
         title: 'Khớp Lệnh Tự Động BUY XAU/USD',
@@ -559,491 +457,180 @@ class DatabaseService {
       });
     }
 
-    // Initialize account settings if not present
-    const balanceSetting = this.getSetting('balance');
+    // 2. Seed Default Account Settings
+    const balanceSetting = await this.getSetting('balance');
     if (!balanceSetting) {
-      this.setSetting('balance', CONFIG.EXNESS.STARTING_BALANCE.toString());
-      this.setSetting('server', CONFIG.EXNESS.SERVER);
-      this.setSetting('login', CONFIG.EXNESS.LOGIN);
-      this.setSetting('botActive', 'true');
+      await this.setSetting('balance', CONFIG.EXNESS.STARTING_BALANCE.toString());
+      await this.setSetting('server', CONFIG.EXNESS.SERVER);
+      await this.setSetting('login', CONFIG.EXNESS.LOGIN);
+      await this.setSetting('botActive', 'true');
     }
 
-    // Seed default candlestick patterns if table is empty
-    const existingPatterns = this.prepare('SELECT COUNT(*) as count FROM candlestick_patterns').get() as { count: number };
-    if (existingPatterns.count === 0) {
+    // 3. Seed Default Candlestick Patterns
+    const patternsCount = await PatternModel.countDocuments();
+    if (patternsCount === 0) {
       for (const pattern of DEFAULT_PATTERNS) {
-        this.savePattern(pattern);
+        await this.savePattern(pattern);
       }
     }
 
-    // Seed default indicator configs if table is empty
-    const existingIndicators = this.prepare('SELECT COUNT(*) as count FROM indicator_configs').get() as { count: number };
-    if (existingIndicators.count === 0) {
+    // 4. Seed Default Indicator Configs
+    const indicatorsCount = await IndicatorConfigModel.countDocuments();
+    if (indicatorsCount === 0) {
       for (const ind of DEFAULT_INDICATOR_CONFIGS) {
-        this.saveIndicatorConfig(ind);
+        await this.saveIndicatorConfig(ind);
       }
     }
 
-    // Seed default trading signals if table is empty
-    const existingSignals = this.prepare('SELECT COUNT(*) as count FROM trading_signals').get() as { count: number };
-    if (existingSignals.count === 0) {
+    // 5. Seed Default Trading Signals
+    const signalsCount = await TradingSignalModel.countDocuments();
+    if (signalsCount === 0) {
       for (const sig of DEFAULT_TRADING_SIGNALS) {
-        this.saveTradingSignal(sig);
+        await this.saveTradingSignal(sig);
       }
     }
   }
 
   // --- Rules CRUD ---
-  getAllRules(): AutomationRule[] {
-    const stmt = this.prepare('SELECT * FROM automation_rules ORDER BY created_at DESC');
-    const rows = stmt.all() as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      symbol: r.symbol,
-      timeframe: r.timeframe,
-      indicator: r.indicator,
-      condition: JSON.parse(r.condition_json),
-      action: r.action,
-      lot: Number(r.lot),
-      slPips: Number(r.sl_pips),
-      tpPips: Number(r.tp_pips),
-      trailingStopPips: Number(r.trailing_stop_pips || 0),
-      maxOpenPositions: Number(r.max_open_positions || 1),
-      isActive: Boolean(r.is_active),
-      totalTrades: Number(r.total_trades || 0),
-      winTrades: Number(r.win_trades || 0),
-      totalProfit: Number(r.total_profit || 0),
-      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
-      createdAt: Number(r.created_at),
-      updatedAt: Number(r.updated_at)
-    }));
+  async getAllRules(): Promise<AutomationRule[]> {
+    const docs = await RuleModel.find({}).sort({ createdAt: -1 }).lean();
+    return cleanDocs<AutomationRule>(docs);
   }
 
-  getRuleById(id: string): AutomationRule | null {
-    const stmt = this.prepare('SELECT * FROM automation_rules WHERE id = ?');
-    const r = stmt.get(id) as any;
-    if (!r) return null;
-    return {
-      id: r.id,
-      name: r.name,
-      symbol: r.symbol,
-      timeframe: r.timeframe,
-      indicator: r.indicator,
-      condition: JSON.parse(r.condition_json),
-      action: r.action,
-      lot: Number(r.lot),
-      slPips: Number(r.sl_pips),
-      tpPips: Number(r.tp_pips),
-      trailingStopPips: Number(r.trailing_stop_pips || 0),
-      maxOpenPositions: Number(r.max_open_positions || 1),
-      isActive: Boolean(r.is_active),
-      totalTrades: Number(r.total_trades || 0),
-      winTrades: Number(r.win_trades || 0),
-      totalProfit: Number(r.total_profit || 0),
-      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
-      createdAt: Number(r.created_at),
-      updatedAt: Number(r.updated_at)
-    };
+  async getRuleById(id: string): Promise<AutomationRule | null> {
+    const doc = await RuleModel.findOne({ id }).lean();
+    return cleanDoc<AutomationRule>(doc);
   }
 
-  saveRule(rule: AutomationRule): AutomationRule {
-    const stmt = this.prepare(`
-      INSERT INTO automation_rules (
-        id, name, symbol, timeframe, indicator, condition_json,
-        action, lot, sl_pips, tp_pips, trailing_stop_pips,
-        max_open_positions, is_active, total_trades, win_trades,
-        total_profit, last_triggered_at, created_at, updated_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?, ?
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        symbol = excluded.symbol,
-        timeframe = excluded.timeframe,
-        indicator = excluded.indicator,
-        condition_json = excluded.condition_json,
-        action = excluded.action,
-        lot = excluded.lot,
-        sl_pips = excluded.sl_pips,
-        tp_pips = excluded.tp_pips,
-        trailing_stop_pips = excluded.trailing_stop_pips,
-        max_open_positions = excluded.max_open_positions,
-        is_active = excluded.is_active,
-        total_trades = excluded.total_trades,
-        win_trades = excluded.win_trades,
-        total_profit = excluded.total_profit,
-        last_triggered_at = excluded.last_triggered_at,
-        updated_at = excluded.updated_at
-    `);
-
-    stmt.run(
-      rule.id,
-      rule.name,
-      rule.symbol,
-      rule.timeframe,
-      rule.indicator,
-      JSON.stringify(rule.condition),
-      rule.action,
-      rule.lot,
-      rule.slPips,
-      rule.tpPips,
-      rule.trailingStopPips,
-      rule.maxOpenPositions,
-      rule.isActive ? 1 : 0,
-      rule.totalTrades,
-      rule.winTrades,
-      rule.totalProfit,
-      rule.lastTriggeredAt || null,
-      rule.createdAt,
-      rule.updatedAt
+  async saveRule(rule: AutomationRule): Promise<AutomationRule> {
+    await RuleModel.findOneAndUpdate(
+      { id: rule.id },
+      { $set: rule },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return rule;
   }
 
-  deleteRule(id: string): boolean {
-    const stmt = this.prepare('DELETE FROM automation_rules WHERE id = ?');
-    stmt.run(id);
-    return true;
+  async deleteRule(id: string): Promise<boolean> {
+    const res = await RuleModel.deleteOne({ id });
+    return res.deletedCount > 0;
   }
 
   // --- Orders ---
-  getOpenOrders(): Order[] {
-    const stmt = this.prepare("SELECT * FROM orders WHERE status = 'OPEN' ORDER BY open_time DESC");
-    const rows = stmt.all() as any[];
-    return rows.map(this.mapOrder);
+  async getOpenOrders(): Promise<Order[]> {
+    const docs = await OrderModel.find({ status: 'OPEN' }).sort({ openTime: -1 }).lean();
+    return cleanDocs<Order>(docs);
   }
 
-  getAllOrders(): Order[] {
-    const stmt = this.prepare('SELECT * FROM orders ORDER BY open_time DESC LIMIT 100');
-    const rows = stmt.all() as any[];
-    return rows.map(this.mapOrder);
+  async getAllOrders(): Promise<Order[]> {
+    const docs = await OrderModel.find({}).sort({ openTime: -1 }).limit(100).lean();
+    return cleanDocs<Order>(docs);
   }
 
-  getOrderById(id: string): Order | null {
-    const stmt = this.prepare('SELECT * FROM orders WHERE id = ?');
-    const r = stmt.get(id) as any;
-    if (!r) return null;
-    return this.mapOrder(r);
+  async getOrderById(id: string): Promise<Order | null> {
+    const doc = await OrderModel.findOne({ id }).lean();
+    return cleanDoc<Order>(doc);
   }
 
-  saveOrder(order: Order): Order {
-    const stmt = this.prepare(`
-      INSERT INTO orders (
-        id, rule_id, rule_name, symbol, type, lot,
-        open_price, current_price, close_price, sl, tp,
-        trailing_stop, highest_price, lowest_price, pnl,
-        status, open_time, close_time, close_reason
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?, ?
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        current_price = excluded.current_price,
-        close_price = excluded.close_price,
-        sl = excluded.sl,
-        tp = excluded.tp,
-        trailing_stop = excluded.trailing_stop,
-        highest_price = excluded.highest_price,
-        lowest_price = excluded.lowest_price,
-        pnl = excluded.pnl,
-        status = excluded.status,
-        close_time = excluded.close_time,
-        close_reason = excluded.close_reason
-    `);
-
-    stmt.run(
-      order.id,
-      order.ruleId || null,
-      order.ruleName || null,
-      order.symbol,
-      order.type,
-      order.lot,
-      order.openPrice,
-      order.currentPrice,
-      order.closePrice || null,
-      order.sl || null,
-      order.tp || null,
-      order.trailingStop || null,
-      order.highestPrice || order.openPrice,
-      order.lowestPrice || order.openPrice,
-      order.pnl,
-      order.status,
-      order.openTime,
-      order.closeTime || null,
-      order.closeReason || null
+  async saveOrder(order: Order): Promise<Order> {
+    await OrderModel.findOneAndUpdate(
+      { id: order.id },
+      { $set: order },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return order;
   }
 
-  private mapOrder(r: any): Order {
-    return {
-      id: r.id,
-      ruleId: r.rule_id || undefined,
-      ruleName: r.rule_name || undefined,
-      symbol: r.symbol,
-      type: r.type,
-      lot: Number(r.lot),
-      openPrice: Number(r.open_price),
-      currentPrice: Number(r.current_price),
-      closePrice: r.close_price ? Number(r.close_price) : undefined,
-      sl: r.sl ? Number(r.sl) : undefined,
-      tp: r.tp ? Number(r.tp) : undefined,
-      trailingStop: r.trailing_stop ? Number(r.trailing_stop) : undefined,
-      highestPrice: r.highest_price ? Number(r.highest_price) : undefined,
-      lowestPrice: r.lowest_price ? Number(r.lowest_price) : undefined,
-      pnl: Number(r.pnl),
-      status: r.status,
-      openTime: Number(r.open_time),
-      closeTime: r.close_time ? Number(r.close_time) : undefined,
-      closeReason: r.close_reason || undefined,
-    };
-  }
-
   // --- Bot Messages ---
-  getBotMessages(limit: number = 50): BotMessage[] {
-    const stmt = this.prepare('SELECT * FROM bot_messages ORDER BY timestamp DESC LIMIT ?');
-    const rows = stmt.all(limit) as any[];
-    return rows.reverse().map(r => ({
-      id: r.id,
-      type: r.type,
-      title: r.title,
-      message: r.message,
-      symbol: r.symbol || undefined,
-      orderId: r.order_id || undefined,
-      data: r.data_json ? JSON.parse(r.data_json) : undefined,
-      timestamp: Number(r.timestamp)
-    }));
+  async getBotMessages(limit: number = 50): Promise<BotMessage[]> {
+    const docs = await BotMessageModel.find({}).sort({ timestamp: -1 }).limit(limit).lean();
+    return cleanDocs<BotMessage>(docs.reverse());
   }
 
-  addBotMessage(msg: BotMessage): BotMessage {
-    const stmt = this.prepare(`
-      INSERT INTO bot_messages (id, type, title, message, symbol, order_id, data_json, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      msg.id,
-      msg.type,
-      msg.title,
-      msg.message,
-      msg.symbol || null,
-      msg.orderId || null,
-      msg.data ? JSON.stringify(msg.data) : null,
-      msg.timestamp
-    );
+  async addBotMessage(msg: BotMessage): Promise<BotMessage> {
+    await BotMessageModel.create(msg);
     return msg;
   }
 
   // --- Settings ---
-  getSetting(key: string): string | null {
-    const stmt = this.prepare('SELECT value FROM account_settings WHERE key = ?');
-    const row = stmt.get(key) as { value: string } | undefined;
-    return row ? row.value : null;
+  async getSetting(key: string): Promise<string | null> {
+    const doc = await SettingModel.findOne({ key }).lean();
+    return doc ? doc.value : null;
   }
 
-  setSetting(key: string, value: string) {
-    const stmt = this.prepare(`
-      INSERT INTO account_settings (key, value) VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `);
-    stmt.run(key, value);
+  async setSetting(key: string, value: string): Promise<void> {
+    await SettingModel.findOneAndUpdate(
+      { key },
+      { $set: { key, value } },
+      { upsert: true, new: true }
+    );
   }
 
   // --- Candlestick Patterns CRUD ---
-  getAllPatterns(filter?: { category?: string; signal?: string; isActive?: boolean }): CandlestickPattern[] {
-    let sql = 'SELECT * FROM candlestick_patterns WHERE 1=1';
-    const params: any[] = [];
-
+  async getAllPatterns(filter?: { category?: string; signal?: string; isActive?: boolean }): Promise<CandlestickPattern[]> {
+    const query: any = {};
     if (filter?.category && filter.category !== 'ALL') {
-      sql += ' AND category = ?';
-      params.push(filter.category);
+      query.category = filter.category;
     }
     if (filter?.signal && filter.signal !== 'ALL') {
-      sql += ' AND signal = ?';
-      params.push(filter.signal);
+      query.signal = filter.signal;
     }
     if (filter?.isActive !== undefined) {
-      sql += ' AND is_active = ?';
-      params.push(filter.isActive ? 1 : 0);
+      query.isActive = filter.isActive;
     }
 
-    sql += ' ORDER BY candle_count ASC, name ASC';
-    const stmt = this.prepare(sql);
-    const rows = stmt.all(...params) as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      signal: r.signal,
-      candleCount: Number(r.candle_count),
-      description: r.description || '',
-      candles: JSON.parse(r.candles_json),
-      isActive: Boolean(r.is_active),
-      isPredefined: Boolean(r.is_predefined),
-      createdAt: Number(r.created_at),
-      updatedAt: Number(r.updated_at)
-    }));
+    const docs = await PatternModel.find(query).sort({ candleCount: 1, name: 1 }).lean();
+    return cleanDocs<CandlestickPattern>(docs);
   }
 
-  getPatternById(id: string): CandlestickPattern | null {
-    const stmt = this.prepare('SELECT * FROM candlestick_patterns WHERE id = ?');
-    const r = stmt.get(id) as any;
-    if (!r) return null;
-    return {
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      signal: r.signal,
-      candleCount: Number(r.candle_count),
-      description: r.description || '',
-      candles: JSON.parse(r.candles_json),
-      isActive: Boolean(r.is_active),
-      isPredefined: Boolean(r.is_predefined),
-      createdAt: Number(r.created_at),
-      updatedAt: Number(r.updated_at)
-    };
+  async getPatternById(id: string): Promise<CandlestickPattern | null> {
+    const doc = await PatternModel.findOne({ id }).lean();
+    return cleanDoc<CandlestickPattern>(doc);
   }
 
-  savePattern(pattern: CandlestickPattern): CandlestickPattern {
-    const stmt = this.prepare(`
-      INSERT INTO candlestick_patterns (
-        id, name, category, signal, candle_count, description,
-        candles_json, is_active, is_predefined, created_at, updated_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        category = excluded.category,
-        signal = excluded.signal,
-        candle_count = excluded.candle_count,
-        description = excluded.description,
-        candles_json = excluded.candles_json,
-        is_active = excluded.is_active,
-        is_predefined = excluded.is_predefined,
-        updated_at = excluded.updated_at
-    `);
-
-    stmt.run(
-      pattern.id,
-      pattern.name,
-      pattern.category,
-      pattern.signal,
-      pattern.candleCount,
-      pattern.description || '',
-      JSON.stringify(pattern.candles),
-      pattern.isActive ? 1 : 0,
-      pattern.isPredefined ? 1 : 0,
-      pattern.createdAt || Date.now(),
-      pattern.updatedAt || Date.now()
+  async savePattern(pattern: CandlestickPattern): Promise<CandlestickPattern> {
+    await PatternModel.findOneAndUpdate(
+      { id: pattern.id },
+      { $set: pattern },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return pattern;
   }
 
-  deletePattern(id: string): boolean {
-    const stmt = this.prepare('DELETE FROM candlestick_patterns WHERE id = ?');
-    stmt.run(id);
-    return true;
+  async deletePattern(id: string): Promise<boolean> {
+    const res = await PatternModel.deleteOne({ id });
+    return res.deletedCount > 0;
   }
 
-  resetPatternsToDefault(): void {
-    this.db.exec('DELETE FROM candlestick_patterns');
+  async resetPatternsToDefault(): Promise<void> {
+    await PatternModel.deleteMany({});
     for (const p of DEFAULT_PATTERNS) {
-      this.savePattern(p);
+      await this.savePattern(p);
     }
   }
 
   // --- Indicators Configuration CRUD ---
-  getAllIndicatorConfigs(): IndicatorConfig[] {
-    const stmt = this.prepare('SELECT * FROM indicator_configs ORDER BY priority ASC');
-    const rows = stmt.all() as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      type: r.type,
-      category: r.category || 'MOMENTUM',
-      description: r.description,
-      isActive: Boolean(r.is_active),
-      timeframe: r.timeframe,
-      buyCondition: JSON.parse(r.buy_condition_json || '{}'),
-      sellCondition: JSON.parse(r.sell_condition_json || '{}'),
-      parameters: JSON.parse(r.parameters_json || '{}'),
-      priority: Number(r.priority || 1),
-      updatedAt: Number(r.updated_at || Date.now())
-    }));
+  async getAllIndicatorConfigs(): Promise<IndicatorConfig[]> {
+    const docs = await IndicatorConfigModel.find({}).sort({ priority: 1 }).lean();
+    return cleanDocs<IndicatorConfig>(docs);
   }
 
-  getIndicatorConfigById(id: string): IndicatorConfig | null {
-    const r = this.prepare('SELECT * FROM indicator_configs WHERE id = ?').get(id) as any;
-    if (!r) return null;
-    return {
-      id: r.id,
-      name: r.name,
-      type: r.type,
-      category: r.category || 'MOMENTUM',
-      description: r.description,
-      isActive: Boolean(r.is_active),
-      timeframe: r.timeframe,
-      buyCondition: JSON.parse(r.buy_condition_json || '{}'),
-      sellCondition: JSON.parse(r.sell_condition_json || '{}'),
-      parameters: JSON.parse(r.parameters_json || '{}'),
-      priority: Number(r.priority || 1),
-      updatedAt: Number(r.updated_at || Date.now())
-    };
+  async getIndicatorConfigById(id: string): Promise<IndicatorConfig | null> {
+    const doc = await IndicatorConfigModel.findOne({ id }).lean();
+    return cleanDoc<IndicatorConfig>(doc);
   }
 
-  saveIndicatorConfig(config: IndicatorConfig): IndicatorConfig {
-    const stmt = this.prepare(`
-      INSERT INTO indicator_configs (
-        id, name, type, category, description, is_active, timeframe,
-        buy_condition_json, sell_condition_json, parameters_json, priority, updated_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        type = excluded.type,
-        category = excluded.category,
-        description = excluded.description,
-        is_active = excluded.is_active,
-        timeframe = excluded.timeframe,
-        buy_condition_json = excluded.buy_condition_json,
-        sell_condition_json = excluded.sell_condition_json,
-        parameters_json = excluded.parameters_json,
-        priority = excluded.priority,
-        updated_at = excluded.updated_at
-    `);
-
-    stmt.run(
-      config.id,
-      config.name,
-      config.type,
-      config.category || 'MOMENTUM',
-      config.description || '',
-      config.isActive ? 1 : 0,
-      config.timeframe || 'M1',
-      JSON.stringify(config.buyCondition || {}),
-      JSON.stringify(config.sellCondition || {}),
-      JSON.stringify(config.parameters || {}),
-      config.priority || 1,
-      config.updatedAt || Date.now()
+  async saveIndicatorConfig(config: IndicatorConfig): Promise<IndicatorConfig> {
+    await IndicatorConfigModel.findOneAndUpdate(
+      { id: config.id },
+      { $set: config },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return config;
   }
 
-  updateIndicatorConfig(id: string, updates: Partial<IndicatorConfig>): IndicatorConfig {
-    const current = this.getIndicatorConfigById(id);
+  async updateIndicatorConfig(id: string, updates: Partial<IndicatorConfig>): Promise<IndicatorConfig> {
+    const current = await this.getIndicatorConfigById(id);
     if (!current) throw new Error(`Không tìm thấy cấu hình chỉ báo với ID ${id}`);
 
     const updated: IndicatorConfig = {
@@ -1055,124 +642,36 @@ class DatabaseService {
     return this.saveIndicatorConfig(updated);
   }
 
-  resetIndicatorConfigsToDefault(): IndicatorConfig[] {
-    this.db.exec('DELETE FROM indicator_configs');
+  async resetIndicatorConfigsToDefault(): Promise<IndicatorConfig[]> {
+    await IndicatorConfigModel.deleteMany({});
     for (const ind of DEFAULT_INDICATOR_CONFIGS) {
-      this.saveIndicatorConfig(ind);
+      await this.saveIndicatorConfig(ind);
     }
     return this.getAllIndicatorConfigs();
   }
 
   // --- Trading Signals CRUD ---
-  getAllTradingSignals(): TradingSignalConfig[] {
-    const stmt = this.prepare('SELECT * FROM trading_signals ORDER BY updated_at DESC');
-    const rows = stmt.all() as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      description: r.description || '',
-      action: r.action as 'BUY' | 'SELL',
-      symbol: r.symbol,
-      timeframe: r.timeframe,
-      logicOperator: r.logic_operator as 'AND' | 'OR',
-      conditions: JSON.parse(r.conditions_json || '[]'),
-      lot: Number(r.lot),
-      slPips: Number(r.sl_pips),
-      tpPips: Number(r.tp_pips),
-      trailingStopPips: Number(r.trailing_stop_pips || 0),
-      maxOpenPositions: Number(r.max_open_positions || 1),
-      cooldownSeconds: Number(r.cooldown_seconds || 45),
-      isActive: Boolean(r.is_active),
-      totalTriggers: Number(r.total_triggers || 0),
-      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
-      updatedAt: Number(r.updated_at || Date.now())
-    }));
+  async getAllTradingSignals(): Promise<TradingSignalConfig[]> {
+    const docs = await TradingSignalModel.find({}).sort({ updatedAt: -1 }).lean();
+    return cleanDocs<TradingSignalConfig>(docs);
   }
 
-  getTradingSignalById(id: string): TradingSignalConfig | null {
-    const r = this.prepare('SELECT * FROM trading_signals WHERE id = ?').get(id) as any;
-    if (!r) return null;
-    return {
-      id: r.id,
-      name: r.name,
-      description: r.description || '',
-      action: r.action as 'BUY' | 'SELL',
-      symbol: r.symbol,
-      timeframe: r.timeframe,
-      logicOperator: r.logic_operator as 'AND' | 'OR',
-      conditions: JSON.parse(r.conditions_json || '[]'),
-      lot: Number(r.lot),
-      slPips: Number(r.sl_pips),
-      tpPips: Number(r.tp_pips),
-      trailingStopPips: Number(r.trailing_stop_pips || 0),
-      maxOpenPositions: Number(r.max_open_positions || 1),
-      cooldownSeconds: Number(r.cooldown_seconds || 45),
-      isActive: Boolean(r.is_active),
-      totalTriggers: Number(r.total_triggers || 0),
-      lastTriggeredAt: r.last_triggered_at ? Number(r.last_triggered_at) : undefined,
-      updatedAt: Number(r.updated_at || Date.now())
-    };
+  async getTradingSignalById(id: string): Promise<TradingSignalConfig | null> {
+    const doc = await TradingSignalModel.findOne({ id }).lean();
+    return cleanDoc<TradingSignalConfig>(doc);
   }
 
-  saveTradingSignal(signal: TradingSignalConfig): TradingSignalConfig {
-    const stmt = this.prepare(`
-      INSERT INTO trading_signals (
-        id, name, description, action, symbol, timeframe,
-        logic_operator, conditions_json, lot, sl_pips, tp_pips,
-        trailing_stop_pips, max_open_positions, cooldown_seconds,
-        is_active, total_triggers, last_triggered_at, updated_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?,
-        ?, ?, ?, ?
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        description = excluded.description,
-        action = excluded.action,
-        symbol = excluded.symbol,
-        timeframe = excluded.timeframe,
-        logic_operator = excluded.logic_operator,
-        conditions_json = excluded.conditions_json,
-        lot = excluded.lot,
-        sl_pips = excluded.sl_pips,
-        tp_pips = excluded.tp_pips,
-        trailing_stop_pips = excluded.trailing_stop_pips,
-        max_open_positions = excluded.max_open_positions,
-        cooldown_seconds = excluded.cooldown_seconds,
-        is_active = excluded.is_active,
-        total_triggers = excluded.total_triggers,
-        last_triggered_at = excluded.last_triggered_at,
-        updated_at = excluded.updated_at
-    `);
-
-    stmt.run(
-      signal.id,
-      signal.name,
-      signal.description || '',
-      signal.action,
-      signal.symbol,
-      signal.timeframe,
-      signal.logicOperator || 'AND',
-      JSON.stringify(signal.conditions || []),
-      signal.lot,
-      signal.slPips,
-      signal.tpPips,
-      signal.trailingStopPips || 0,
-      signal.maxOpenPositions || 1,
-      signal.cooldownSeconds || 45,
-      signal.isActive ? 1 : 0,
-      signal.totalTriggers || 0,
-      signal.lastTriggeredAt || null,
-      signal.updatedAt || Date.now()
+  async saveTradingSignal(signal: TradingSignalConfig): Promise<TradingSignalConfig> {
+    await TradingSignalModel.findOneAndUpdate(
+      { id: signal.id },
+      { $set: signal },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
-
     return signal;
   }
 
-  updateTradingSignal(id: string, updates: Partial<TradingSignalConfig>): TradingSignalConfig {
-    const current = this.getTradingSignalById(id);
+  async updateTradingSignal(id: string, updates: Partial<TradingSignalConfig>): Promise<TradingSignalConfig> {
+    const current = await this.getTradingSignalById(id);
     if (!current) throw new Error(`Không tìm thấy tín hiệu với ID ${id}`);
 
     const updated: TradingSignalConfig = {
@@ -1184,18 +683,55 @@ class DatabaseService {
     return this.saveTradingSignal(updated);
   }
 
-  deleteTradingSignal(id: string): boolean {
-    const stmt = this.prepare('DELETE FROM trading_signals WHERE id = ?');
-    stmt.run(id);
-    return true;
+  async deleteTradingSignal(id: string): Promise<boolean> {
+    const res = await TradingSignalModel.deleteOne({ id });
+    return res.deletedCount > 0;
   }
 
-  resetTradingSignalsToDefault(): TradingSignalConfig[] {
-    this.db.exec('DELETE FROM trading_signals');
+  async resetTradingSignalsToDefault(): Promise<TradingSignalConfig[]> {
+    await TradingSignalModel.deleteMany({});
     for (const sig of DEFAULT_TRADING_SIGNALS) {
-      this.saveTradingSignal(sig);
+      await this.saveTradingSignal(sig);
     }
     return this.getAllTradingSignals();
+  }
+
+  // --- Users & Auth ---
+  async findUserByEmail(email: string): Promise<User | null> {
+    const doc = await UserModel.findOne({ email: email.toLowerCase().trim() }).lean();
+    return cleanDoc<User>(doc);
+  }
+
+  async findUserById(id: string): Promise<User | null> {
+    const doc = await UserModel.findOne({ id }).lean();
+    return cleanDoc<User>(doc);
+  }
+
+  async findUserByGoogleId(googleId: string): Promise<User | null> {
+    const doc = await UserModel.findOne({ googleId }).lean();
+    return cleanDoc<User>(doc);
+  }
+
+  async saveUser(user: User): Promise<User> {
+    await UserModel.findOneAndUpdate(
+      { id: user.id },
+      { $set: user },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return user;
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    const current = await this.findUserById(id);
+    if (!current) throw new Error(`Không tìm thấy người dùng với ID ${id}`);
+
+    const updated: User = {
+      ...current,
+      ...updates,
+      updatedAt: Date.now()
+    };
+
+    return this.saveUser(updated);
   }
 }
 

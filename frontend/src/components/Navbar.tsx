@@ -1,6 +1,7 @@
-import React from 'react';
-import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield, LogIn, LogOut, ChevronDown, UserCheck } from 'lucide-react';
 import { AccountInfo } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 interface NavbarProps {
   activeTab: 'dashboard' | 'automations';
@@ -23,6 +24,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeRulesCount,
   onNavigateAdmin
 }) => {
+  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const pnl = account?.floatingPnl ?? 0;
   const isProfit = pnl >= 0;
 
@@ -161,15 +177,84 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Admin Portal Gateway Button */}
-          <button
-            onClick={onNavigateAdmin}
-            title="Truy cập Cổng Quản Trị Hệ Thống (/admin)"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40 hover:bg-slate-800/80 transition text-[11px] font-semibold shadow-sm group"
-          >
-            <Shield className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400 transition" />
-            <span className="hidden lg:inline">Admin</span>
-          </button>
+          {/* User Auth Section */}
+          {isAuthenticated && user ? (
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                className="flex items-center gap-2 py-1 px-2 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 hover:bg-slate-800/60 transition shadow-sm"
+              >
+                <img
+                  src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.email)}`}
+                  alt="avatar"
+                  className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 object-cover"
+                />
+                <div className="text-left hidden md:block">
+                  <div className="text-[11px] font-semibold text-slate-200 leading-tight max-w-[90px] truncate">
+                    {user.name}
+                  </div>
+                  <div className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <span>{user.authProvider === 'google' ? 'Google' : 'Gmail'}</span>
+                    {user.role === 'admin' && (
+                      <span className="text-amber-400 font-extrabold">• Admin</span>
+                    )}
+                  </div>
+                </div>
+                <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {userDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl shadow-black/80 p-3 z-50 animate-in fade-in slide-in-from-top-2 backdrop-blur-md">
+                  <div className="flex items-center gap-3 p-2 bg-slate-800/60 rounded-xl mb-2.5">
+                    <img
+                      src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.email)}`}
+                      alt="avatar"
+                      className="w-9 h-9 rounded-xl bg-slate-700 border border-slate-600 object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-white truncate">{user.name}</p>
+                      <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 mt-0.5 rounded text-[9px] bg-cyan-500/20 text-cyan-300 font-medium border border-cyan-500/30">
+                        {user.authProvider === 'google' ? 'Đăng nhập Google API' : 'Tài khoản Email'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        onNavigateAdmin();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-cyan-400 hover:bg-slate-800/80 rounded-xl transition"
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>Cổng Quản Trị Hệ Thống</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        logout();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-400 hover:bg-rose-500/10 rounded-xl transition font-medium"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Đăng Xuất Khỏi Thiết Bị</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => openAuthModal('login')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white transition text-xs font-semibold shadow-md shadow-cyan-500/25"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Đăng Nhập</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

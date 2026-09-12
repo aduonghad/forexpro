@@ -19,7 +19,7 @@ if %errorlevel% neq 0 (
 
 :: 2. Kiểm tra và giải phóng cổng 3001 nếu đang bị chiếm
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3001 ^| findstr LISTENING 2^>nul') do (
-    if not "%%a"=="" (
+    if not "%%a"=="" if not "%%a"=="0" (
         echo ⚠️ Phát hiện tiến trình [PID: %%a] đang chiếm cổng 3001. Đang giải phóng...
         taskkill /F /PID %%a >nul 2>nul
     )
@@ -27,7 +27,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3001 ^| findstr LISTENING 2^
 
 :: 3. Kiểm tra và giải phóng cổng 5173 nếu đang bị chiếm
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^>nul') do (
-    if not "%%a"=="" (
+    if not "%%a"=="" if not "%%a"=="0" (
         echo ⚠️ Phát hiện tiến trình [PID: %%a] đang chiếm cổng 5173. Đang giải phóng...
         taskkill /F /PID %%a >nul 2>nul
     )
@@ -35,18 +35,18 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^
 
 :: 4. Tự động cài đặt dependencies nếu chưa có
 if not exist "node_modules" (
-    echo 📦 Đang cài đặt thư viện gốc (Root dependencies)...
+    echo 📦 Đang cài đặt thư viện gốc [Root dependencies]...
     call npm install
 )
 
 if not exist "backend\node_modules" (
     echo 📦 Đang cài đặt thư viện Backend...
-    cd backend && call npm install && cd ..
+    call npm --prefix backend install
 )
 
 if not exist "frontend\node_modules" (
     echo 📦 Đang cài đặt thư viện Frontend...
-    cd frontend && call npm install && cd ..
+    call npm --prefix frontend install
 )
 
 echo.

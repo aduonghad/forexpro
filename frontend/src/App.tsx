@@ -4,6 +4,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { AutomationsPage } from './pages/AutomationsPage';
 import { ManagementPage } from './pages/ManagementPage';
 import { AdminAuthModal } from './components/management/AdminAuthModal';
+import { AuthModal } from './components/auth/AuthModal';
 import { api } from './services/api';
 import { wsClient } from './services/websocket';
 import { AccountInfo, Order, AutomationRule, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe } from './types';
@@ -324,6 +325,9 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+
+      {/* Global User Authentication Modal */}
+      <AuthModal />
     </div>
   );
 };

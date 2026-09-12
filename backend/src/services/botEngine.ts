@@ -21,18 +21,6 @@ export class BotEngineService extends EventEmitter {
 
   constructor() {
     super();
-    this.isRunning = db.getSetting('botActive') !== 'false';
-    this.swingAlertsActive = db.getSetting('swingAlertsActive') !== 'false';
-    this.analysisAlertsActive = db.getSetting('analysisAlertsActive') !== 'false';
-
-    const savedSymbol = db.getSetting('activeSymbol') as TradingSymbol;
-    const savedTf = db.getSetting('activeTimeframe') as Timeframe;
-    if (savedSymbol && CONFIG.SYMBOLS[savedSymbol]) {
-      this.activeSymbol = savedSymbol;
-    }
-    if (savedTf && ['M1', 'M5', 'M15', 'H1'].includes(savedTf)) {
-      this.activeTimeframe = savedTf;
-    }
 
     // Hook order close events from mt5Bridge to broadcast to chat
     mt5Bridge.on('orderClosed', ({ order, pnl, reason }: { order: Order; pnl: number; reason: string }) => {
@@ -48,7 +36,7 @@ export class BotEngineService extends EventEmitter {
         data: { pnl, reason, order },
         timestamp: Date.now()
       };
-      db.addBotMessage(msg);
+      db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
       this.emit('botMessage', msg);
     });
 
@@ -65,9 +53,34 @@ export class BotEngineService extends EventEmitter {
     this.startEngine();
   }
 
+  async init(): Promise<void> {
+    const savedBotActive = await db.getSetting('botActive');
+    if (savedBotActive !== null) {
+      this.isRunning = savedBotActive !== 'false';
+    }
+    const savedSwingAlerts = await db.getSetting('swingAlertsActive');
+    if (savedSwingAlerts !== null) {
+      this.swingAlertsActive = savedSwingAlerts !== 'false';
+    }
+    const savedAnalysisAlerts = await db.getSetting('analysisAlertsActive');
+    if (savedAnalysisAlerts !== null) {
+      this.analysisAlertsActive = savedAnalysisAlerts !== 'false';
+    }
+
+    const savedSymbol = (await db.getSetting('activeSymbol')) as TradingSymbol;
+    const savedTf = (await db.getSetting('activeTimeframe')) as Timeframe;
+    if (savedSymbol && CONFIG.SYMBOLS[savedSymbol]) {
+      this.activeSymbol = savedSymbol;
+    }
+    if (savedTf && ['M1', 'M5', 'M15', 'H1'].includes(savedTf)) {
+      this.activeTimeframe = savedTf;
+    }
+  }
+
   setBotActive(active: boolean) {
     this.isRunning = active;
-    db.setSetting('botActive', active ? 'true' : 'false');
+    db.setSetting('botActive', active ? 'true' : 'false').catch(err => console.error(err.message));
+    mt5Bridge.setBotActive(active).catch(err => console.error(err.message));
     const msg: BotMessage = {
       id: uuidv4(),
       type: 'INFO',
@@ -77,7 +90,7 @@ export class BotEngineService extends EventEmitter {
         : 'Hệ thống giao dịch tự động đã tạm dừng quét điều kiện.',
       timestamp: Date.now()
     };
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error(err.message));
     this.emit('botMessage', msg);
   }
 
@@ -87,7 +100,7 @@ export class BotEngineService extends EventEmitter {
 
   setSwingAlertsActive(active: boolean) {
     this.swingAlertsActive = active;
-    db.setSetting('swingAlertsActive', active ? 'true' : 'false');
+    db.setSetting('swingAlertsActive', active ? 'true' : 'false').catch(err => console.error(err.message));
     const msg: BotMessage = {
       id: uuidv4(),
       type: 'INFO',
@@ -97,7 +110,7 @@ export class BotEngineService extends EventEmitter {
         : 'Đã tạm tắt thông báo tự động TopDown.',
       timestamp: Date.now()
     };
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error(err.message));
     this.emit('botMessage', msg);
   }
 
@@ -107,7 +120,7 @@ export class BotEngineService extends EventEmitter {
 
   setAnalysisAlertsActive(active: boolean) {
     this.analysisAlertsActive = active;
-    db.setSetting('analysisAlertsActive', active ? 'true' : 'false');
+    db.setSetting('analysisAlertsActive', active ? 'true' : 'false').catch(err => console.error(err.message));
     const msg: BotMessage = {
       id: uuidv4(),
       type: 'INFO',
@@ -117,7 +130,7 @@ export class BotEngineService extends EventEmitter {
         : 'Đã tạm dừng tự động phân tích kỹ thuật định kỳ.',
       timestamp: Date.now()
     };
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error(err.message));
     this.emit('botMessage', msg);
   }
 
@@ -128,11 +141,11 @@ export class BotEngineService extends EventEmitter {
   setActiveSymbolAndTimeframe(symbol: TradingSymbol, timeframe: Timeframe) {
     if (CONFIG.SYMBOLS[symbol]) {
       this.activeSymbol = symbol;
-      db.setSetting('activeSymbol', symbol);
+      db.setSetting('activeSymbol', symbol).catch(err => console.error(err.message));
     }
     if (['M1', 'M5', 'M15', 'H1'].includes(timeframe)) {
       this.activeTimeframe = timeframe;
-      db.setSetting('activeTimeframe', timeframe);
+      db.setSetting('activeTimeframe', timeframe).catch(err => console.error(err.message));
     }
   }
 
@@ -253,7 +266,7 @@ export class BotEngineService extends EventEmitter {
           timestamp: Date.now()
         };
 
-        db.addBotMessage(botMsg);
+        db.addBotMessage(botMsg).catch(err => console.error('Lỗi lưu swing alert:', err.message));
         this.emit('botMessage', botMsg);
       }
     }
@@ -263,11 +276,11 @@ export class BotEngineService extends EventEmitter {
     if (this.evalTimer) return;
 
     // Evaluate dynamic swings, active rules, and trading signals every 1500ms
-    this.evalTimer = setInterval(() => {
+    this.evalTimer = setInterval(async () => {
       this.checkDynamicSwings();
       if (!this.isRunning) return;
-      this.evaluateAllRules();
-      this.evaluateAllSignals();
+      await this.evaluateAllRules();
+      await this.evaluateAllSignals();
     }, 1500);
   }
 
@@ -281,11 +294,12 @@ export class BotEngineService extends EventEmitter {
     }, 60000);
   }
 
-  private evaluateAllRules() {
-    const rules = db.getAllRules().filter(r => r.isActive);
+  private async evaluateAllRules() {
+    const allRules = await db.getAllRules();
+    const rules = allRules.filter(r => r.isActive);
     if (rules.length === 0) return;
 
-    const openOrders = db.getOpenOrders();
+    const openOrders = mt5Bridge.getOpenOrders();
 
     for (const rule of rules) {
       // Check max positions for this rule
@@ -378,13 +392,13 @@ export class BotEngineService extends EventEmitter {
 
       if (triggered) {
         this.lastTriggerTimes.set(rule.id, Date.now());
-        this.executeTradeForRule(rule, triggerReason, currentPrice);
+        await this.executeTradeForRule(rule, triggerReason, currentPrice);
       }
     }
   }
 
-  private executeTradeForRule(rule: AutomationRule, reason: string, triggerPrice: number) {
-    const order = mt5Bridge.openOrder({
+  private async executeTradeForRule(rule: AutomationRule, reason: string, triggerPrice: number) {
+    const order = await mt5Bridge.openOrder({
       symbol: rule.symbol,
       type: rule.action,
       lot: rule.lot,
@@ -410,15 +424,16 @@ export class BotEngineService extends EventEmitter {
       timestamp: Date.now()
     };
 
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
     this.emit('botMessage', msg);
   }
 
-  private evaluateAllSignals() {
-    const signals = db.getAllTradingSignals().filter(s => s.isActive);
+  private async evaluateAllSignals() {
+    const allSignals = await db.getAllTradingSignals();
+    const signals = allSignals.filter(s => s.isActive);
     if (signals.length === 0) return;
 
-    const openOrders = db.getOpenOrders();
+    const openOrders = mt5Bridge.getOpenOrders();
 
     for (const signal of signals) {
       // Check max positions for this signal
@@ -465,44 +480,43 @@ export class BotEngineService extends EventEmitter {
 
           case 'EMA_CROSS': {
             const emaFast = snapshot.ema20 || 0;
-            const emaFastPrev = snapshot.ema20Prev || 0;
             const emaSlow = snapshot.ema50 || 0;
+            const emaFastPrev = snapshot.ema20Prev || 0;
             const emaSlowPrev = snapshot.ema50Prev || 0;
 
-            if (cond.operator === 'CROSS_ABOVE') {
-              if (emaFastPrev <= emaSlowPrev && emaFast > emaSlow) {
-                met = true;
-                reason = `EMA 20 cắt lên trên EMA 50`;
-              }
-            } else if (cond.operator === 'CROSS_BELOW') {
-              if (emaFastPrev >= emaSlowPrev && emaFast < emaSlow) {
-                met = true;
-                reason = `EMA 20 cắt xuống dưới EMA 50`;
-              }
-            } else if (cond.operator === 'FAST_ABOVE_SLOW') {
-              if (emaFast > emaSlow) {
-                met = true;
-                reason = `EMA 20 nằm trên EMA 50 (Xu hướng tăng)`;
-              }
-            } else if (cond.operator === 'FAST_BELOW_SLOW') {
-              if (emaFast < emaSlow) {
-                met = true;
-                reason = `EMA 20 nằm dưới EMA 50 (Xu hướng giảm)`;
-              }
+            if (cond.operator === 'CROSS_ABOVE' && emaFastPrev <= emaSlowPrev && emaFast > emaSlow) {
+              met = true;
+              reason = `EMA 20 cắt lên EMA 50`;
+            } else if (cond.operator === 'CROSS_BELOW' && emaFastPrev >= emaSlowPrev && emaFast < emaSlow) {
+              met = true;
+              reason = `EMA 20 cắt xuống EMA 50`;
+            } else if (cond.operator === 'FAST_ABOVE_SLOW' && emaFast > emaSlow) {
+              met = true;
+              reason = `EMA 20 > EMA 50 (Xu hướng tăng)`;
+            } else if (cond.operator === 'FAST_BELOW_SLOW' && emaFast < emaSlow) {
+              met = true;
+              reason = `EMA 20 < EMA 50 (Xu hướng giảm)`;
             }
             break;
           }
 
           case 'BOLLINGER': {
-            const bbLower = snapshot.bbLower || 0;
-            const bbUpper = snapshot.bbUpper || 0;
+            const lower = snapshot.bbLower || 0;
+            const upper = snapshot.bbUpper || 999999;
+            const middle = snapshot.bbMiddle || currentPrice;
 
-            if (cond.operator === 'TOUCH_LOWER' && currentPrice <= bbLower) {
+            if (cond.operator === 'TOUCH_LOWER' && currentPrice <= lower) {
               met = true;
-              reason = `Giá chạm dải dưới Bollinger (${bbLower.toFixed(2)})`;
-            } else if (cond.operator === 'TOUCH_UPPER' && currentPrice >= bbUpper) {
+              reason = `Chạm Lower Band (${lower.toFixed(2)})`;
+            } else if (cond.operator === 'TOUCH_UPPER' && currentPrice >= upper) {
               met = true;
-              reason = `Giá chạm dải trên Bollinger (${bbUpper.toFixed(2)})`;
+              reason = `Chạm Upper Band (${upper.toFixed(2)})`;
+            } else if (cond.operator === 'PRICE_ABOVE_MIDDLE' && currentPrice > middle) {
+              met = true;
+              reason = `Giá trên Middle Band`;
+            } else if (cond.operator === 'PRICE_BELOW_MIDDLE' && currentPrice < middle) {
+              met = true;
+              reason = `Giá dưới Middle Band`;
             }
             break;
           }
@@ -513,25 +527,27 @@ export class BotEngineService extends EventEmitter {
               const lastConfirmed = swings[swings.length - 2];
               if (cond.operator === 'SWING_LOW' && lastConfirmed.type === 'LOW' && currentTrend === 'UP') {
                 met = true;
-                reason = `Xác nhận tạo ĐÁY nhịp giảm tại ${lastConfirmed.price}`;
+                reason = `Xác nhận tạo Đáy sóng (${lastConfirmed.price})`;
               } else if (cond.operator === 'SWING_HIGH' && lastConfirmed.type === 'HIGH' && currentTrend === 'DOWN') {
                 met = true;
-                reason = `Xác nhận tạo ĐỈNH nhịp tăng tại ${lastConfirmed.price}`;
+                reason = `Xác nhận tạo Đỉnh sóng (${lastConfirmed.price})`;
               }
             }
             break;
           }
 
           case 'MACD': {
+            const macdVal = snapshot.macdLine || 0;
+            const signalVal = snapshot.macdSignal || 0;
             const hist = snapshot.macdHistogram || 0;
             const histPrev = snapshot.macdHistogramPrev || 0;
 
             if (cond.operator === 'HISTOGRAM_POSITIVE' && hist > 0) {
               met = true;
-              reason = `Histogram MACD dương (${hist.toFixed(4)})`;
+              reason = `MACD Histogram dương (+${hist.toFixed(2)})`;
             } else if (cond.operator === 'HISTOGRAM_NEGATIVE' && hist < 0) {
               met = true;
-              reason = `Histogram MACD âm (${hist.toFixed(4)})`;
+              reason = `MACD Histogram âm (${hist.toFixed(2)})`;
             } else if (cond.operator === 'CROSS_ABOVE' && histPrev <= 0 && hist > 0) {
               met = true;
               reason = `MACD cắt lên Signal Line`;
@@ -554,13 +570,13 @@ export class BotEngineService extends EventEmitter {
       if (isTriggered) {
         this.lastTriggerTimes.set(signal.id, Date.now());
         const satisfiedReasons = conditionResults.filter(c => c.met).map(c => c.reason).join(' & ');
-        this.executeTradeForSignal(signal, satisfiedReasons, currentPrice, targetSymbol);
+        await this.executeTradeForSignal(signal, satisfiedReasons, currentPrice, targetSymbol);
       }
     }
   }
 
-  private executeTradeForSignal(signal: TradingSignalConfig, reason: string, triggerPrice: number, symbol: TradingSymbol) {
-    const order = mt5Bridge.openOrder({
+  private async executeTradeForSignal(signal: TradingSignalConfig, reason: string, triggerPrice: number, symbol: TradingSymbol) {
+    const order = await mt5Bridge.openOrder({
       symbol,
       type: signal.action,
       lot: signal.lot,
@@ -572,7 +588,7 @@ export class BotEngineService extends EventEmitter {
     });
 
     try {
-      db.updateTradingSignal(signal.id, {
+      await db.updateTradingSignal(signal.id, {
         totalTriggers: (signal.totalTriggers || 0) + 1,
         lastTriggeredAt: Date.now()
       });
@@ -597,11 +613,11 @@ export class BotEngineService extends EventEmitter {
       timestamp: Date.now()
     };
 
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
     this.emit('botMessage', msg);
   }
 
-  handleTradingViewWebhook(payload: {
+  async handleTradingViewWebhook(payload: {
     secret?: string;
     ticker: string;
     action: 'BUY' | 'SELL' | 'CLOSE';
@@ -621,7 +637,7 @@ export class BotEngineService extends EventEmitter {
     }
 
     if (payload.action === 'CLOSE') {
-      const closed = mt5Bridge.closeAllOrders(`TradingView Webhook Alert: ${payload.message || 'Chốt vị thế'}`);
+      const closed = await mt5Bridge.closeAllOrders(`TradingView Webhook Alert: ${payload.message || 'Chốt vị thế'}`);
       const msg: BotMessage = {
         id: uuidv4(),
         type: 'INFO',
@@ -630,19 +646,20 @@ export class BotEngineService extends EventEmitter {
         symbol,
         timestamp: Date.now()
       };
-      db.addBotMessage(msg);
+      db.addBotMessage(msg).catch(err => console.error(err.message));
       this.emit('botMessage', msg);
       return { success: true, closedCount: closed.length };
     }
 
     // Find any active rule matching this webhook
-    const matchingRule = db.getAllRules().find(r => r.symbol === symbol && r.indicator === 'WEBHOOK' && r.isActive);
+    const allRules = await db.getAllRules();
+    const matchingRule = allRules.find(r => r.symbol === symbol && r.indicator === 'WEBHOOK' && r.isActive);
 
     const lot = payload.lot || matchingRule?.lot || 0.1;
     const slPips = payload.sl_pips || matchingRule?.slPips || 25;
     const tpPips = payload.tp_pips || matchingRule?.tpPips || 50;
 
-    const order = mt5Bridge.openOrder({
+    const order = await mt5Bridge.openOrder({
       symbol,
       type: payload.action,
       lot,
@@ -664,7 +681,7 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
       timestamp: Date.now()
     };
 
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error(err.message));
     this.emit('botMessage', msg);
     return { success: true, order };
   }
@@ -723,11 +740,11 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
       timestamp: Date.now()
     };
 
-    db.addBotMessage(msg);
+    db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
     this.emit('botMessage', msg);
   }
 
-  handleUserChatMessage(userText: string): BotMessage {
+  async handleUserChatMessage(userText: string): Promise<BotMessage> {
     const text = userText.trim().toLowerCase();
     let replyTitle = '🤖 Trợ Lý Bot Exness';
     let replyContent = '';
@@ -740,7 +757,7 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
       message: userText,
       timestamp: Date.now()
     };
-    db.addBotMessage(userMsg);
+    db.addBotMessage(userMsg).catch(err => console.error(err.message));
     this.emit('botMessage', userMsg);
 
     if (text.includes('bật bot') || text.includes('start') || text.includes('resume')) {
@@ -750,7 +767,7 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
       this.setBotActive(false);
       replyContent = 'Đã TẠM DỪNG hệ thống giao dịch tự động. Các vị thế hiện tại vẫn được giữ nguyên cho đến khi chạm SL/TP hoặc đóng thủ công.';
     } else if (text.includes('đóng hết') || text.includes('đóng tất cả') || text.includes('close all')) {
-      const closed = mt5Bridge.closeAllOrders('Đóng khẩn cấp theo lệnh người dùng trong chat');
+      const closed = await mt5Bridge.closeAllOrders('Đóng khẩn cấp theo lệnh người dùng trong chat');
       replyContent = `Đã đóng khẩn cấp toàn bộ ${closed.length} vị thế đang mở.`;
     } else if (text.includes('trạng thái') || text.includes('status') || text.includes('tài khoản')) {
       const acc = mt5Bridge.getAccountInfo();
@@ -824,7 +841,7 @@ Trạng thái chuông báo chat: ${this.swingAlertsActive ? 'ĐANG BẬT 🟢' :
       timestamp: Date.now()
     };
 
-    db.addBotMessage(replyMsg);
+    await db.addBotMessage(replyMsg).catch(err => console.error(err.message));
     this.emit('botMessage', replyMsg);
     return replyMsg;
   }

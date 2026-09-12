@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Target, Info, Check, User, ArrowRight, Bell, BellOff, BarChart3 } from 'lucide-react';
+import { Bot, Send, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Target, Info, Check, User, ArrowRight, BarChart3 } from 'lucide-react';
 import { BotMessage, BotMessageType } from '../../types';
 import { api } from '../../services/api';
 
@@ -12,35 +12,15 @@ interface BotChatProps {
 export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botActive }) => {
   const [inputText, setInputText] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
-  const [telegramActive, setTelegramActive] = useState<boolean>(false);
-  const [telegramEnabled, setTelegramEnabled] = useState<boolean>(true);
-  const [loadingTelegram, setLoadingTelegram] = useState<boolean>(false);
   const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(true);
   const [loadingAnalysis, setLoadingAnalysis] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    api.getTelegramConfig().then(data => {
-      setTelegramActive(data.active);
-      setTelegramEnabled(data.notificationsEnabled);
-    }).catch(() => {});
-
     api.getBotStatus().then(status => {
       setAnalysisEnabled(status.analysisAlertsActive);
     }).catch(() => {});
   }, []);
-
-  const handleToggleTelegram = async () => {
-    setLoadingTelegram(true);
-    try {
-      const newStatus = await api.toggleTelegramNotifications();
-      setTelegramEnabled(newStatus);
-    } catch (err) {
-      console.error('Failed to toggle Telegram notifications:', err);
-    } finally {
-      setLoadingTelegram(false);
-    }
-  };
 
   const handleToggleAnalysis = async () => {
     setLoadingAnalysis(true);
@@ -150,27 +130,6 @@ export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botAc
             >
               <BarChart3 className={`w-3.5 h-3.5 ${analysisEnabled ? 'text-cyan-400 animate-pulse' : 'text-slate-400'}`} />
               <span>Phân tích: {analysisEnabled ? 'BẬT' : 'TẮT'}</span>
-            </button>
-
-            {/* Telegram Notifications Toggle Button */}
-            <button
-              onClick={handleToggleTelegram}
-              disabled={loadingTelegram}
-              title={telegramActive ? (telegramEnabled ? 'Tắt đẩy thông báo tự động sang Telegram' : 'Bật đẩy thông báo tự động sang Telegram') : 'Chưa cấu hình Telegram Token & Chat ID trong backend/.env'}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition border ${
-                !telegramActive
-                  ? 'bg-slate-950 text-slate-500 border-slate-800 cursor-not-allowed opacity-60'
-                  : telegramEnabled
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30 shadow-sm shadow-sky-500/20'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              {telegramActive && telegramEnabled ? (
-                <Bell className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-              ) : (
-                <BellOff className="w-3.5 h-3.5 text-slate-400" />
-              )}
-              <span>Telegram: {telegramActive ? (telegramEnabled ? 'BẬT' : 'TẮT') : 'Chưa nối'}</span>
             </button>
           </div>
         </div>

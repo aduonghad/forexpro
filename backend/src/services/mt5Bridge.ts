@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
 import { db } from '../db/database.js';
 import { marketData, TickData } from './marketData.js';
-import { Order, OrderType, TradingSymbol, AccountInfo, BotMessage } from '../types/index.js';
+import { Order, OrderType, TradingSymbol, AccountInfo } from '../types/index.js';
 
 export interface OpenOrderParams {
   symbol: TradingSymbol;
@@ -19,21 +19,48 @@ export interface OpenOrderParams {
 export class MT5BridgeService extends EventEmitter {
   private isConnectedToMT5: boolean = false;
   private isPaperTrading: boolean = true;
-  private currentBalance: number;
+  private currentBalance: number = CONFIG.EXNESS.STARTING_BALANCE;
+  private openOrdersMap: Map<string, Order> = new Map();
+  private login: string = CONFIG.EXNESS.LOGIN;
+  private server: string = CONFIG.EXNESS.SERVER;
+  private botActive: boolean = true;
 
   constructor() {
     super();
-    const savedBalance = db.getSetting('balance');
-    this.currentBalance = savedBalance ? parseFloat(savedBalance) : CONFIG.EXNESS.STARTING_BALANCE;
-
     // Listen to market ticks to update positions & check SL/TP/Trailing Stop
     marketData.on('tick', (tick: TickData) => {
       this.handleTick(tick);
     });
   }
 
+  async init(): Promise<void> {
+    const savedBalance = await db.getSetting('balance');
+    this.currentBalance = savedBalance ? parseFloat(savedBalance) : CONFIG.EXNESS.STARTING_BALANCE;
+
+    const savedLogin = await db.getSetting('login');
+    if (savedLogin) this.login = savedLogin;
+
+    const savedServer = await db.getSetting('server');
+    if (savedServer) this.server = savedServer;
+
+    const savedBotActive = await db.getSetting('botActive');
+    if (savedBotActive !== null) {
+      this.botActive = savedBotActive !== 'false';
+    }
+
+    const orders = await db.getOpenOrders();
+    this.openOrdersMap.clear();
+    for (const order of orders) {
+      this.openOrdersMap.set(order.id, order);
+    }
+  }
+
+  getOpenOrders(): Order[] {
+    return Array.from(this.openOrdersMap.values());
+  }
+
   getAccountInfo(): AccountInfo {
-    const openOrders = db.getOpenOrders();
+    const openOrders = this.getOpenOrders();
     let floatingPnl = 0;
     let totalMargin = 0;
 
@@ -49,11 +76,10 @@ export class MT5BridgeService extends EventEmitter {
     const margin = Number(totalMargin.toFixed(2));
     const freeMargin = Number((equity - margin).toFixed(2));
     const marginLevel = margin > 0 ? Number(((equity / margin) * 100).toFixed(1)) : 9999.0;
-    const botActive = db.getSetting('botActive') !== 'false';
 
     return {
-      login: db.getSetting('login') || CONFIG.EXNESS.LOGIN,
-      server: db.getSetting('server') || CONFIG.EXNESS.SERVER,
+      login: this.login,
+      server: this.server,
       currency: 'USD',
       balance: Number(this.currentBalance.toFixed(2)),
       equity,
@@ -63,11 +89,16 @@ export class MT5BridgeService extends EventEmitter {
       openPositionsCount: openOrders.length,
       floatingPnl: Number(floatingPnl.toFixed(2)),
       isLive: !this.isPaperTrading,
-      botActive
+      botActive: this.botActive
     };
   }
 
-  openOrder(params: OpenOrderParams): Order {
+  async setBotActive(active: boolean): Promise<void> {
+    this.botActive = active;
+    await db.setSetting('botActive', active ? 'true' : 'false');
+  }
+
+  async openOrder(params: OpenOrderParams): Promise<Order> {
     const spec = CONFIG.SYMBOLS[params.symbol];
     const prices = marketData.getCurrentPrice(params.symbol);
     const openPrice = params.type === 'BUY' ? prices.ask : prices.bid;
@@ -106,16 +137,17 @@ export class MT5BridgeService extends EventEmitter {
       openTime: Date.now()
     };
 
-    db.saveOrder(newOrder);
+    this.openOrdersMap.set(newOrder.id, newOrder);
+    await db.saveOrder(newOrder);
 
     // Update rule stats if triggered from rule
     if (params.ruleId) {
-      const rule = db.getRuleById(params.ruleId);
+      const rule = await db.getRuleById(params.ruleId);
       if (rule) {
         rule.totalTrades += 1;
         rule.lastTriggeredAt = Date.now();
         rule.updatedAt = Date.now();
-        db.saveRule(rule);
+        await db.saveRule(rule);
       }
     }
 
@@ -123,8 +155,12 @@ export class MT5BridgeService extends EventEmitter {
     return newOrder;
   }
 
-  closeOrder(orderId: string, reason: string = 'Thủ công'): Order | null {
-    const order = db.getOrderById(orderId);
+  async closeOrder(orderId: string, reason: string = 'Thủ công'): Promise<Order | null> {
+    let order = this.openOrdersMap.get(orderId);
+    if (!order) {
+      const fromDb = await db.getOrderById(orderId);
+      if (fromDb) order = fromDb;
+    }
     if (!order || order.status !== 'OPEN') return null;
 
     const prices = marketData.getCurrentPrice(order.symbol);
@@ -138,22 +174,23 @@ export class MT5BridgeService extends EventEmitter {
     order.closeTime = Date.now();
     order.closeReason = reason;
 
-    db.saveOrder(order);
+    this.openOrdersMap.delete(order.id);
+    await db.saveOrder(order);
 
     // Update balance
     this.currentBalance += finalPnl;
-    db.setSetting('balance', this.currentBalance.toString());
+    await db.setSetting('balance', this.currentBalance.toString());
 
     // Update rule win/loss stats
     if (order.ruleId) {
-      const rule = db.getRuleById(order.ruleId);
+      const rule = await db.getRuleById(order.ruleId);
       if (rule) {
         rule.totalProfit += finalPnl;
         if (finalPnl > 0) {
           rule.winTrades += 1;
         }
         rule.updatedAt = Date.now();
-        db.saveRule(rule);
+        await db.saveRule(rule);
       }
     }
 
@@ -161,11 +198,11 @@ export class MT5BridgeService extends EventEmitter {
     return order;
   }
 
-  closeAllOrders(reason: string = 'Đóng tất cả'): Order[] {
-    const openOrders = db.getOpenOrders();
+  async closeAllOrders(reason: string = 'Đóng tất cả'): Promise<Order[]> {
+    const openOrderIds = Array.from(this.openOrdersMap.keys());
     const closed: Order[] = [];
-    for (const ord of openOrders) {
-      const res = this.closeOrder(ord.id, reason);
+    for (const ordId of openOrderIds) {
+      const res = await this.closeOrder(ordId, reason);
       if (res) closed.push(res);
     }
     return closed;
@@ -186,7 +223,7 @@ export class MT5BridgeService extends EventEmitter {
   }
 
   private handleTick(tick: TickData) {
-    const openOrders = db.getOpenOrders().filter(o => o.symbol === tick.symbol);
+    const openOrders = Array.from(this.openOrdersMap.values()).filter(o => o.symbol === tick.symbol);
     if (openOrders.length === 0) return;
 
     const spec = CONFIG.SYMBOLS[tick.symbol];
@@ -240,15 +277,17 @@ export class MT5BridgeService extends EventEmitter {
         }
       }
 
-      // Save updated PnL and current price
-      db.saveOrder(order);
+      // Async write-through to MongoDB
+      db.saveOrder(order).catch(err => {
+        console.error('Lỗi cập nhật trạng thái order:', err.message);
+      });
     }
   }
 
-  resetDemoBalance(amount: number = 10000.0) {
-    this.closeAllOrders('Reset tài khoản');
+  async resetDemoBalance(amount: number = 10000.0): Promise<AccountInfo> {
+    await this.closeAllOrders('Reset tài khoản');
     this.currentBalance = amount;
-    db.setSetting('balance', amount.toString());
+    await db.setSetting('balance', amount.toString());
     return this.getAccountInfo();
   }
 }

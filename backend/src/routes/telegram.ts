@@ -9,8 +9,8 @@ const router = Router();
 router.get('/status', async (_req: Request, res: Response) => {
   try {
     const creds = telegramService.getCredentials();
-    const token = (db.getSetting('telegramBotToken') || CONFIG.TELEGRAM.BOT_TOKEN || '').trim();
-    const chatId = (db.getSetting('telegramChatId') || CONFIG.TELEGRAM.CHAT_ID || '').trim();
+    const token = ((await db.getSetting('telegramBotToken')) || CONFIG.TELEGRAM.BOT_TOKEN || '').trim();
+    const chatId = ((await db.getSetting('telegramChatId')) || CONFIG.TELEGRAM.CHAT_ID || '').trim();
 
     let botInfo: any = null;
     if (token) {
@@ -40,14 +40,14 @@ router.get('/status', async (_req: Request, res: Response) => {
 });
 
 // POST /api/telegram/toggle - Turn notifications on or off
-router.post('/toggle', (req: Request, res: Response) => {
+router.post('/toggle', async (req: Request, res: Response) => {
   try {
     const { enabled } = req.body;
     const isEnabled = enabled !== undefined ? Boolean(enabled) : !telegramService.isNotificationsEnabled();
-    const newStatus = telegramService.setNotificationsEnabled(isEnabled);
+    const newStatus = await telegramService.setNotificationsEnabled(isEnabled);
 
     // Also persist in database
-    db.setSetting('telegramAlertsActive', newStatus ? 'true' : 'false');
+    await db.setSetting('telegramAlertsActive', newStatus ? 'true' : 'false');
 
     res.json({
       success: true,
@@ -90,14 +90,14 @@ _Thông báo này xác nhận kênh kết nối giữa Web App và Telegram củ
 });
 
 // POST /api/telegram/credentials - Update Bot Token and Chat ID
-router.post('/credentials', (req: Request, res: Response) => {
+router.post('/credentials', async (req: Request, res: Response) => {
   try {
     const { botToken, chatId } = req.body;
     if (!botToken || !chatId) {
       return res.status(400).json({ success: false, error: 'Vui lòng cung cấp đầy đủ botToken và chatId' });
     }
 
-    telegramService.setCredentials(String(botToken), String(chatId));
+    await telegramService.setCredentials(String(botToken), String(chatId));
     res.json({ success: true, message: 'Đã cập nhật thông tin Telegram Bot thành công!' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

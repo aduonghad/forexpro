@@ -252,3 +252,31 @@ export interface SystemModule {
   iconName: string;
   badge?: string;
 }
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  googleId?: string;
+  authProvider: 'local' | 'google';
+  role: 'user' | 'admin';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type SafeUser = User;
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+export interface AuthState {
+  user: User | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  isAuthModalOpen: boolean;
+  authMode: 'login' | 'register';
+}

@@ -15,6 +15,10 @@ import patternsRouter from './routes/patterns.js';
 import telegramRouter from './routes/telegram.js';
 import indicatorsRouter from './routes/indicators.js';
 import signalsRouter from './routes/signals.js';
+import { authRouter } from './routes/auth.js';
+import { db } from './db/database.js';
+import { mt5Bridge } from './services/mt5Bridge.js';
+import { botEngine } from './services/botEngine.js';
 import { telegramService } from './services/telegramService.js';
 
 const app = express();
@@ -22,6 +26,7 @@ app.use(cors());
 app.use(express.json());
 
 // API Routes
+app.use('/api/auth', authRouter);
 app.use('/api/rules', rulesRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/chart', chartRouter);
@@ -182,19 +187,39 @@ server.on('error', (err: any) => {
   }
 });
 
-server.listen(CONFIG.PORT, () => {
-  console.log(`====================================================`);
-  console.log(`🚀 Exness Pro Auto Trading Server Running!`);
-  console.log(`📡 HTTP API: http://localhost:${CONFIG.PORT}`);
-  console.log(`⚡ WebSocket: ws://localhost:${CONFIG.PORT}/ws`);
-  console.log(`====================================================`);
-  telegramService.init();
-});
+async function startServer() {
+  try {
+    // 1. Connect to MongoDB and seed default collections if empty
+    await db.connect();
+
+    // 2. Initialize in-memory cache for bridge and bot engine
+    await mt5Bridge.init();
+    await botEngine.init();
+    await telegramService.init();
+
+    // 3. Start listening on HTTP & WebSocket port
+    server.listen(CONFIG.PORT, () => {
+      console.log(`====================================================`);
+      console.log(`🚀 Exness Pro Auto Trading Server Running with MongoDB!`);
+      console.log(`📡 HTTP API: http://localhost:${CONFIG.PORT}`);
+      console.log(`⚡ WebSocket: ws://localhost:${CONFIG.PORT}/ws`);
+      console.log(`====================================================`);
+    });
+  } catch (err: any) {
+    console.error('❌ Khởi động server thất bại:', err.message);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Handle termination signals (Windows & POSIX)
-const handleShutdown = () => {
+const handleShutdown = async () => {
   console.log('\n🛑 Đang đóng hệ thống an toàn...');
-  server.close(() => {
+  server.close(async () => {
+    try {
+      await db.disconnect();
+    } catch {}
     process.exit(0);
   });
 };

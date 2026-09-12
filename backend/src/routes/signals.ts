@@ -6,9 +6,9 @@ import { TradingSignalConfig } from '../types/index.js';
 const router = Router();
 
 // GET /api/signals - List all trading signals
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const signals = db.getAllTradingSignals();
+    const signals = await db.getAllTradingSignals();
     res.json({ success: true, data: signals });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -16,10 +16,10 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // GET /api/signals/:id - Get specific signal
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const signal = db.getTradingSignalById(id);
+    const signal = await db.getTradingSignalById(id);
     if (!signal) {
       return res.status(404).json({ success: false, error: 'Không tìm thấy tín hiệu này' });
     }
@@ -30,7 +30,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/signals - Create a new trading signal
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const body = req.body;
     const newSignal: TradingSignalConfig = {
@@ -53,7 +53,7 @@ router.post('/', (req: Request, res: Response) => {
       updatedAt: Date.now()
     };
 
-    const saved = db.saveTradingSignal(newSignal);
+    const saved = await db.saveTradingSignal(newSignal);
     res.status(201).json({ success: true, data: saved });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -61,11 +61,11 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // PUT /api/signals/:id - Update an existing trading signal
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
     const updates = req.body;
-    const updated = db.updateTradingSignal(id, updates);
+    const updated = await db.updateTradingSignal(id, updates);
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -73,10 +73,10 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // DELETE /api/signals/:id - Delete a trading signal
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const success = db.deleteTradingSignal(id);
+    const success = await db.deleteTradingSignal(id);
     res.json({ success, message: 'Đã xoá tín hiệu thành công' });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -84,9 +84,9 @@ router.delete('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/signals/reset - Reset signals to system defaults
-router.post('/reset', (req: Request, res: Response) => {
+router.post('/reset', async (req: Request, res: Response) => {
   try {
-    const fresh = db.resetTradingSignalsToDefault();
+    const fresh = await db.resetTradingSignalsToDefault();
     res.json({ success: true, data: fresh });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

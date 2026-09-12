@@ -122,8 +122,8 @@ forexpro/
 ├── backend/
 │   ├── src/
 │   │   ├── index.ts          # Express Server + WebSocket
-│   │   ├── config.ts         # Cấu hình Exness & Thông số thị trường
-│   │   ├── db/database.ts    # SQLite lưu trữ Rules, Orders, Chat logs
+│   │   ├── config.ts         # Cấu hình Exness, MongoDB & Thông số thị trường
+│   │   ├── db/database.ts    # MongoDB (Mongoose) lưu trữ Rules, Orders, Chat logs
 │   │   ├── services/
 │   │   │   ├── indicators.ts # Tính RSI, EMA, Bollinger Bands
 │   │   │   ├── marketData.ts # Stream tick & nến đa khung thời gian

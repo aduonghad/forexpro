@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   createChart,
   IChartApi,
@@ -9,7 +9,8 @@ import {
   ISeriesPrimitive,
   ISeriesPrimitiveAxisView
 } from 'lightweight-charts';
-import { TradingSymbol, Timeframe, Candle, Order, IndicatorSnapshot } from '../../types';
+import { TradingSymbol, Timeframe, Candle, Order, IndicatorSnapshot, IndicatorConfig } from '../../types';
+import { api } from '../../services/api';
 import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { analyzeClosedCandle } from '../../utils/candleClassifier';
 import { ClosedCandleDetailModal } from './ClosedCandleDetailModal';
@@ -129,6 +130,53 @@ interface DynamicSwingResult {
   swings: Array<{ type: 'HIGH' | 'LOW'; time: number; price: number; label: string }>;
   waveLine: LineData[];
   currentTrend: 'UP' | 'DOWN';
+}
+
+function calculateEMA(prices: number[], period: number): number[] {
+  const ema: number[] = [];
+  const multiplier = 2 / (period + 1);
+  if (prices.length < period) return prices.map(() => NaN);
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += prices[i];
+  ema[period - 1] = sum / period;
+  for (let i = period; i < prices.length; i++) {
+    ema.push((prices[i] - ema[i - 1]) * multiplier + ema[i - 1]);
+  }
+  return ema;
+}
+
+function calculateMACD(
+  closes: number[],
+  fastPeriod: number = 12,
+  slowPeriod: number = 26,
+  signalPeriod: number = 9
+) {
+  const fastEMA = calculateEMA(closes, fastPeriod);
+  const slowEMA = calculateEMA(closes, slowPeriod);
+  const macdLine: number[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (isNaN(fastEMA[i]) || isNaN(slowEMA[i])) {
+      macdLine.push(NaN);
+    } else {
+      macdLine.push(fastEMA[i] - slowEMA[i]);
+    }
+  }
+
+  const validStart = macdLine.findIndex(v => !isNaN(v));
+  const validMacd = validStart >= 0 ? macdLine.slice(validStart) : [];
+  const validSignal = calculateEMA(validMacd, signalPeriod);
+  const signalLine: number[] = new Array(validStart >= 0 ? validStart : 0).fill(NaN).concat(validSignal);
+  const histogram: number[] = [];
+
+  for (let i = 0; i < closes.length; i++) {
+    if (isNaN(macdLine[i]) || isNaN(signalLine[i])) {
+      histogram.push(NaN);
+    } else {
+      histogram.push(macdLine[i] - signalLine[i]);
+    }
+  }
+
+  return { macdLine, signalLine, histogram };
 }
 
 /**
@@ -253,9 +301,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
+  const macdContainerRef = useRef<HTMLDivElement>(null);
 
   const chartRef = useRef<IChartApi | null>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
+  const macdChartRef = useRef<IChartApi | null>(null);
 
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -263,15 +313,74 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   const bbUpperSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbLowerSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdLineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const signalLineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const histSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const waveLineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const countdownPrimitiveRef = useRef<CountdownPrimitive | null>(null);
 
+  // Dynamic Indicator configurations from Management page (/api/indicators/config)
+  const [indicatorConfigs, setIndicatorConfigs] = useState<IndicatorConfig[]>([]);
+
+  const loadIndicatorConfigs = useCallback(async () => {
+    try {
+      const data = await api.getIndicatorConfigs();
+      if (data && Array.isArray(data) && data.length > 0) {
+        setIndicatorConfigs(data);
+      }
+    } catch (err) {
+      console.warn('Không thể nạp cấu hình chỉ báo từ API:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadIndicatorConfigs();
+    const handleUpdate = () => loadIndicatorConfigs();
+    window.addEventListener('indicators_updated', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('indicators_updated', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
+  }, [loadIndicatorConfigs]);
+
+  // Extract individual indicator configs from management
+  const emaConfig = useMemo(() => indicatorConfigs.find(i => i.type === 'EMA_CROSS'), [indicatorConfigs]);
+  const bbConfig = useMemo(() => indicatorConfigs.find(i => i.type === 'BOLLINGER'), [indicatorConfigs]);
+  const rsiConfig = useMemo(() => indicatorConfigs.find(i => i.type === 'RSI'), [indicatorConfigs]);
+  const swingsConfig = useMemo(() => indicatorConfigs.find(i => i.type === 'DYNAMIC_SWING'), [indicatorConfigs]);
+  const macdConfig = useMemo(() => indicatorConfigs.find(i => i.type === 'MACD'), [indicatorConfigs]);
+
+  // Dynamic Parameters (fallback to standard defaults if not set)
+  const emaActive = emaConfig ? emaConfig.isActive : true;
+  const emaFastPeriod = Number(emaConfig?.parameters?.fastPeriod) || 20;
+  const emaSlowPeriod = Number(emaConfig?.parameters?.slowPeriod) || 50;
+
+  const bbActive = bbConfig ? bbConfig.isActive : true;
+  const bbPeriod = Number(bbConfig?.parameters?.period) || 20;
+  const bbStdDev = Number(bbConfig?.parameters?.stdDev) || 2.0;
+
+  const rsiActive = rsiConfig ? rsiConfig.isActive : true;
+  const rsiPeriod = Number(rsiConfig?.parameters?.period) || 14;
+  const rsiOversold = Number(rsiConfig?.parameters?.oversold) || 30;
+  const rsiOverbought = Number(rsiConfig?.parameters?.overbought) || 70;
+
+  const swingsActive = swingsConfig ? swingsConfig.isActive : true;
+
+  const macdActive = macdConfig ? macdConfig.isActive : true;
+  const macdFast = Number(macdConfig?.parameters?.fastEMA) || 12;
+  const macdSlow = Number(macdConfig?.parameters?.slowEMA) || 26;
+  const macdSignal = Number(macdConfig?.parameters?.signalPeriod) || 9;
+
   // Indicator visibility toggles with localStorage persistence
-  const [showEma20, setShowEma20] = useState(() => getStoredBool('chart_show_ema20', true));
-  const [showEma50, setShowEma50] = useState(() => getStoredBool('chart_show_ema50', true));
+  const [showEmaFast, setShowEmaFast] = useState(() => getStoredBool('chart_show_ema_fast', getStoredBool('chart_show_ema20', true)));
+  const [showEmaSlow, setShowEmaSlow] = useState(() => getStoredBool('chart_show_ema_slow', getStoredBool('chart_show_ema50', true)));
   const [showBollinger, setShowBollinger] = useState(() => getStoredBool('chart_show_bollinger', true));
   const [showRsi, setShowRsi] = useState(() => getStoredBool('chart_show_rsi', true));
   const [showSwings, setShowSwings] = useState(() => getStoredBool('chart_show_swings', true));
+  const [showMacd, setShowMacd] = useState(() => getStoredBool('chart_show_macd', false));
+  const [latestMacd, setLatestMacd] = useState({ macd: 0, signal: 0, hist: 0 });
+
   const [currentSwingTrend, setCurrentSwingTrend] = useState<'UP' | 'DOWN'>('UP');
   const [candleTimeLeft, setCandleTimeLeft] = useState<string>('00:00');
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -325,18 +434,18 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     return () => clearInterval(timer);
   }, [timeframe]);
 
-  const toggleEma20 = () => {
-    setShowEma20(prev => {
+  const toggleEmaFast = () => {
+    setShowEmaFast(prev => {
       const next = !prev;
-      setStoredBool('chart_show_ema20', next);
+      setStoredBool('chart_show_ema_fast', next);
       return next;
     });
   };
 
-  const toggleEma50 = () => {
-    setShowEma50(prev => {
+  const toggleEmaSlow = () => {
+    setShowEmaSlow(prev => {
       const next = !prev;
-      setStoredBool('chart_show_ema50', next);
+      setStoredBool('chart_show_ema_slow', next);
       return next;
     });
   };
@@ -361,6 +470,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     setShowSwings(prev => {
       const next = !prev;
       setStoredBool('chart_show_swings', next);
+      return next;
+    });
+  };
+
+  const toggleMacd = () => {
+    setShowMacd(prev => {
+      const next = !prev;
+      setStoredBool('chart_show_macd', next);
       return next;
     });
   };
@@ -483,7 +600,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   // Initialize RSI Sub-chart
   useEffect(() => {
-    if (!rsiContainerRef.current || !showRsi) return;
+    if (!rsiContainerRef.current || !showRsi || !rsiActive) return;
 
     const rsiChart = createChart(rsiContainerRef.current, {
       width: rsiContainerRef.current.clientWidth,
@@ -510,26 +627,26 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     const rsiSeries = rsiChart.addLineSeries({
       color: '#38bdf8',
       lineWidth: 2,
-      title: 'RSI 14',
+      title: `RSI ${rsiPeriod}`,
     });
 
-    // Add 70 and 30 baseline markers
+    // Add dynamic overbought & oversold baseline markers
     rsiSeries.createPriceLine({
-      price: 70,
+      price: rsiOverbought,
       color: '#f43f5e',
       lineWidth: 1,
       lineStyle: 2,
       axisLabelVisible: true,
-      title: '70 Quá Mua',
+      title: `${rsiOverbought} Quá Mua`,
     });
 
     rsiSeries.createPriceLine({
-      price: 30,
+      price: rsiOversold,
       color: '#10b981',
       lineWidth: 1,
       lineStyle: 2,
       axisLabelVisible: true,
-      title: '30 Quá Bán',
+      title: `${rsiOversold} Quá Bán`,
     });
 
     rsiSeries.createPriceLine({
@@ -587,7 +704,108 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         rsiChart.remove();
       } catch {}
     };
-  }, [showRsi]);
+  }, [showRsi, rsiActive, rsiPeriod, rsiOverbought, rsiOversold]);
+
+  // Initialize MACD Sub-chart
+  useEffect(() => {
+    if (!macdContainerRef.current || !showMacd || !macdActive) return;
+
+    const macdChart = createChart(macdContainerRef.current, {
+      width: macdContainerRef.current.clientWidth,
+      height: 120,
+      layout: {
+        background: { color: '#080d1a' },
+        textColor: '#64748b',
+      },
+      grid: {
+        vertLines: { color: '#131d31' },
+        horzLines: { color: '#131d31' },
+      },
+      timeScale: {
+        borderColor: '#1e293b',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      rightPriceScale: {
+        borderColor: '#1e293b',
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+    });
+
+    const macdLineSeries = macdChart.addLineSeries({
+      color: '#06b6d4',
+      lineWidth: 2,
+      title: 'MACD',
+    });
+
+    const signalLineSeries = macdChart.addLineSeries({
+      color: '#f59e0b',
+      lineWidth: 1,
+      title: 'Signal',
+    });
+
+    const histSeries = macdChart.addHistogramSeries({
+      color: '#10b981',
+      title: 'Hist',
+    });
+
+    // Zero center line
+    macdLineSeries.createPriceLine({
+      price: 0,
+      color: '#334155',
+      lineWidth: 1,
+      lineStyle: 3,
+      axisLabelVisible: false,
+    });
+
+    macdChartRef.current = macdChart;
+    macdLineSeriesRef.current = macdLineSeries;
+    signalLineSeriesRef.current = signalLineSeries;
+    histSeriesRef.current = histSeries;
+
+    const handleTimeRangeChange = (timeRange: any) => {
+      if (
+        timeRange &&
+        timeRange.from !== null &&
+        timeRange.to !== null &&
+        timeRange.from !== undefined &&
+        timeRange.to !== undefined &&
+        macdChartRef.current
+      ) {
+        try {
+          macdChartRef.current.timeScale().setVisibleRange({
+            from: timeRange.from,
+            to: timeRange.to
+          });
+        } catch {}
+      }
+    };
+
+    if (chartRef.current) {
+      chartRef.current.timeScale().subscribeVisibleTimeRangeChange(handleTimeRangeChange);
+    }
+
+    const handleResize = () => {
+      if (macdContainerRef.current) {
+        macdChart.applyOptions({ width: macdContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (chartRef.current) {
+        chartRef.current.timeScale().unsubscribeVisibleTimeRangeChange(handleTimeRangeChange);
+      }
+      macdChartRef.current = null;
+      macdLineSeriesRef.current = null;
+      signalLineSeriesRef.current = null;
+      histSeriesRef.current = null;
+      try {
+        macdChart.remove();
+      } catch {}
+    };
+  }, [showMacd, macdActive, macdFast, macdSlow, macdSignal]);
 
   // Update chart candles and overlay lines when candles data changes
   useEffect(() => {
@@ -614,16 +832,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
     // Calculate indicator lines
     const closes = cleanCandles.map(c => c.close);
 
-    // EMA 20
-    if (showEma20 && ema20SeriesRef.current) {
-      const mult = 2 / (20 + 1);
+    // EMA Fast (Cấu hình từ Quản Lý)
+    if (showEmaFast && emaActive && ema20SeriesRef.current) {
+      const mult = 2 / (emaFastPeriod + 1);
       const emaData: LineData[] = [];
       let ema = closes[0];
       for (let i = 0; i < cleanCandles.length; i++) {
-        if (i >= 19) {
-          if (i === 19) {
-            const sum = closes.slice(0, 20).reduce((a, b) => a + b, 0);
-            ema = sum / 20;
+        if (i >= emaFastPeriod - 1) {
+          if (i === emaFastPeriod - 1) {
+            const sum = closes.slice(0, emaFastPeriod).reduce((a, b) => a + b, 0);
+            ema = sum / emaFastPeriod;
           } else {
             ema = (closes[i] - ema) * mult + ema;
           }
@@ -635,16 +853,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ema20SeriesRef.current.setData([]);
     }
 
-    // EMA 50
-    if (showEma50 && ema50SeriesRef.current) {
-      const mult = 2 / (50 + 1);
+    // EMA Slow (Cấu hình từ Quản Lý)
+    if (showEmaSlow && emaActive && ema50SeriesRef.current) {
+      const mult = 2 / (emaSlowPeriod + 1);
       const emaData: LineData[] = [];
       let ema = closes[0];
       for (let i = 0; i < cleanCandles.length; i++) {
-        if (i >= 49) {
-          if (i === 49) {
-            const sum = closes.slice(0, 50).reduce((a, b) => a + b, 0);
-            ema = sum / 50;
+        if (i >= emaSlowPeriod - 1) {
+          if (i === emaSlowPeriod - 1) {
+            const sum = closes.slice(0, emaSlowPeriod).reduce((a, b) => a + b, 0);
+            ema = sum / emaSlowPeriod;
           } else {
             ema = (closes[i] - ema) * mult + ema;
           }
@@ -656,11 +874,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       ema50SeriesRef.current.setData([]);
     }
 
-    // Bollinger Bands
-    if (showBollinger && bbUpperSeriesRef.current && bbLowerSeriesRef.current) {
+    // Bollinger Bands (Cấu hình từ Quản Lý)
+    if (showBollinger && bbActive && bbUpperSeriesRef.current && bbLowerSeriesRef.current) {
       const upperData: LineData[] = [];
       const lowerData: LineData[] = [];
-      const period = 20;
+      const period = bbPeriod;
+      const stdMul = bbStdDev;
 
       for (let i = period - 1; i < cleanCandles.length; i++) {
         const slice = closes.slice(i - period + 1, i + 1);
@@ -668,8 +887,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         const variance = slice.reduce((s, p) => s + Math.pow(p - mean, 2), 0) / period;
         const std = Math.sqrt(variance);
 
-        upperData.push({ time: cleanCandles[i].time as Time, value: Number((mean + 2 * std).toFixed(4)) });
-        lowerData.push({ time: cleanCandles[i].time as Time, value: Number((mean - 2 * std).toFixed(4)) });
+        upperData.push({ time: cleanCandles[i].time as Time, value: Number((mean + stdMul * std).toFixed(4)) });
+        lowerData.push({ time: cleanCandles[i].time as Time, value: Number((mean - stdMul * std).toFixed(4)) });
       }
 
       bbUpperSeriesRef.current.setData(upperData);
@@ -679,10 +898,10 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       bbLowerSeriesRef.current?.setData([]);
     }
 
-    // RSI
-    if (showRsi && rsiSeriesRef.current) {
+    // RSI (Cấu hình từ Quản Lý)
+    if (showRsi && rsiActive && rsiSeriesRef.current) {
       const rsiData: LineData[] = [];
-      const period = 14;
+      const period = rsiPeriod;
       if (cleanCandles.length > period) {
         const gains: number[] = [];
         const losses: number[] = [];
@@ -714,15 +933,53 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       rsiSeriesRef.current.setData(rsiData);
     }
 
-    // Dynamic Swings calculation
+    // Dynamic Swings calculation (Cấu hình từ Quản Lý)
     const { swings, waveLine, currentTrend } = calculateDynamicSwings(cleanCandles);
     setCurrentSwingTrend(currentTrend);
 
     // Render ZigZag wave line
-    if (showSwings && waveLineSeriesRef.current) {
+    if (showSwings && swingsActive && waveLineSeriesRef.current) {
       waveLineSeriesRef.current.setData(waveLine);
     } else if (waveLineSeriesRef.current) {
       waveLineSeriesRef.current.setData([]);
+    }
+
+    // MACD calculation (Cấu hình từ Quản Lý)
+    if (showMacd && macdActive && (macdLineSeriesRef.current || signalLineSeriesRef.current || histSeriesRef.current)) {
+      const { macdLine, signalLine, histogram } = calculateMACD(closes, macdFast, macdSlow, macdSignal);
+      const macdData: LineData[] = [];
+      const sigData: LineData[] = [];
+      const histData: any[] = [];
+
+      for (let i = 0; i < cleanCandles.length; i++) {
+        const t = cleanCandles[i].time as Time;
+        if (!isNaN(macdLine[i])) {
+          macdData.push({ time: t, value: Number(macdLine[i].toFixed(4)) });
+        }
+        if (!isNaN(signalLine[i])) {
+          sigData.push({ time: t, value: Number(signalLine[i].toFixed(4)) });
+        }
+        if (!isNaN(histogram[i])) {
+          histData.push({
+            time: t,
+            value: Number(histogram[i].toFixed(4)),
+            color: histogram[i] >= 0 ? '#10b981' : '#f43f5e'
+          });
+        }
+      }
+
+      macdLineSeriesRef.current?.setData(macdData);
+      signalLineSeriesRef.current?.setData(sigData);
+      histSeriesRef.current?.setData(histData);
+
+      const lastIdx = cleanCandles.length - 1;
+      if (lastIdx >= 0) {
+        setLatestMacd({
+          macd: !isNaN(macdLine[lastIdx]) ? Number(macdLine[lastIdx].toFixed(3)) : 0,
+          signal: !isNaN(signalLine[lastIdx]) ? Number(signalLine[lastIdx].toFixed(3)) : 0,
+          hist: !isNaN(histogram[lastIdx]) ? Number(histogram[lastIdx].toFixed(3)) : 0
+        });
+      }
     }
 
     // Set markers for Swings (ĐỈNH / ĐÁY) and active orders on the chart
@@ -730,7 +987,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       const combinedMarkers: any[] = [];
 
       // 1. Add Dynamic Swing Markers if enabled
-      if (showSwings) {
+      if (showSwings && swingsActive) {
         for (const sw of swings) {
           combinedMarkers.push({
             time: sw.time as Time,
@@ -767,7 +1024,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
       candleSeriesRef.current.setMarkers(combinedMarkers);
     }
-  }, [candles, showEma20, showEma50, showBollinger, showRsi, showSwings, orders, symbol]);
+  }, [candles, showEmaFast, showEmaSlow, showBollinger, showRsi, showSwings, showMacd, emaFastPeriod, emaSlowPeriod, bbPeriod, bbStdDev, rsiPeriod, macdFast, macdSlow, macdSignal, emaActive, bbActive, rsiActive, swingsActive, macdActive, orders, symbol]);
 
   const latestCandle = candles[candles.length - 1];
   const prevCandle = candles[candles.length - 2];
@@ -813,49 +1070,87 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           ))}
         </div>
 
-        {/* Indicator Toggles */}
-        <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-[11px]">
-          <Layers className="w-3.5 h-3.5 text-slate-500 mr-1" />
-          <button
-            onClick={toggleEma20}
-            className={`px-2 py-0.5 rounded font-medium transition ${
-              showEma20 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-500 line-through'
-            }`}
-          >
-            EMA 20
-          </button>
-          <button
-            onClick={toggleEma50}
-            className={`px-2 py-0.5 rounded font-medium transition ${
-              showEma50 ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'text-slate-500 line-through'
-            }`}
-          >
-            EMA 50
-          </button>
-          <button
-            onClick={toggleBollinger}
-            className={`px-2 py-0.5 rounded font-medium transition ${
-              showBollinger ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-500 line-through'
-            }`}
-          >
-            BB (20,2)
-          </button>
-          <button
-            onClick={toggleRsi}
-            className={`px-2 py-0.5 rounded font-medium transition ${
-              showRsi ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-500 line-through'
-            }`}
-          >
-            RSI 14
-          </button>
-          <button
-            onClick={toggleSwings}
-            className={`px-2.5 py-0.5 rounded font-bold transition flex items-center gap-1 ${
-              showSwings ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20' : 'text-slate-500 line-through'
-            }`}
-          >
-            <span>TopDown</span>
-          </button>
+        {/* Indicator Toggles (Cập nhật tự động theo Trang Quản Lý) */}
+        <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto scrollbar-none">
+          <Layers className="w-3.5 h-3.5 text-cyan-400 mr-0.5 shrink-0" />
+
+          {/* EMA Fast */}
+          {emaActive && (
+            <button
+              onClick={toggleEmaFast}
+              title={`Đường trung bình động EMA ${emaFastPeriod} (Cấu hình từ Quản Lý)`}
+              className={`px-2 py-0.5 rounded font-medium transition whitespace-nowrap ${
+                showEmaFast ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm' : 'text-slate-500 line-through'
+              }`}
+            >
+              EMA {emaFastPeriod}
+            </button>
+          )}
+
+          {/* EMA Slow */}
+          {emaActive && (
+            <button
+              onClick={toggleEmaSlow}
+              title={`Đường trung bình động EMA ${emaSlowPeriod} (Cấu hình từ Quản Lý)`}
+              className={`px-2 py-0.5 rounded font-medium transition whitespace-nowrap ${
+                showEmaSlow ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 shadow-sm' : 'text-slate-500 line-through'
+              }`}
+            >
+              EMA {emaSlowPeriod}
+            </button>
+          )}
+
+          {/* Bollinger Bands */}
+          {bbActive && (
+            <button
+              onClick={toggleBollinger}
+              title={`Dải Bollinger Bands (${bbPeriod}, ${bbStdDev}) (Cấu hình từ Quản Lý)`}
+              className={`px-2 py-0.5 rounded font-medium transition whitespace-nowrap ${
+                showBollinger ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm' : 'text-slate-500 line-through'
+              }`}
+            >
+              BB ({bbPeriod},{bbStdDev})
+            </button>
+          )}
+
+          {/* RSI */}
+          {rsiActive && (
+            <button
+              onClick={toggleRsi}
+              title={`RSI ${rsiPeriod} [Quá bán: ${rsiOversold} | Quá mua: ${rsiOverbought}] (Cấu hình từ Quản Lý)`}
+              className={`px-2 py-0.5 rounded font-medium transition whitespace-nowrap ${
+                showRsi ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-500 line-through'
+              }`}
+            >
+              RSI {rsiPeriod}
+            </button>
+          )}
+
+          {/* Dynamic Swings / TopDown */}
+          {swingsActive && (
+            <button
+              onClick={toggleSwings}
+              title="Dynamic Price Action Swings / TopDown Đỉnh - Đáy (Cấu hình từ Quản Lý)"
+              className={`px-2.5 py-0.5 rounded font-bold transition flex items-center gap-1 whitespace-nowrap ${
+                showSwings ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20' : 'text-slate-500 line-through'
+              }`}
+            >
+              <span>TopDown</span>
+            </button>
+          )}
+
+          {/* MACD */}
+          {macdActive && (
+            <button
+              onClick={toggleMacd}
+              title={`MACD (${macdFast}, ${macdSlow}, ${macdSignal}) (Cấu hình từ Quản Lý)`}
+              className={`px-2 py-0.5 rounded font-medium transition whitespace-nowrap ${
+                showMacd ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm' : 'text-slate-500 line-through'
+              }`}
+            >
+              MACD ({macdFast},{macdSlow})
+            </button>
+          )}
         </div>
       </div>
 
@@ -943,14 +1238,33 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       {/* Main Candlestick Chart Canvas */}
       <div className="relative w-full h-[380px]" ref={chartContainerRef} />
 
-      {/* Sub-chart: RSI */}
-      {showRsi && (
+      {/* Sub-chart: RSI (Hiển thị đồng bộ theo Cấu hình Quản Lý) */}
+      {showRsi && rsiActive && (
         <div className="border-t border-slate-800 bg-slate-950/60 p-2">
           <div className="flex items-center justify-between text-[11px] px-2 mb-1 text-slate-400 font-mono">
-            <span className="font-semibold text-sky-400">RSI(14) - Quá bán: 30 | Quá mua: 70</span>
+            <span className="font-semibold text-sky-400">
+              RSI({rsiPeriod}) - Quá bán: {rsiOversold} | Quá mua: {rsiOverbought}
+            </span>
             <span>Hiện tại: <strong className="text-sky-300">{indicators?.rsi14 || 50}</strong></span>
           </div>
           <div className="w-full h-[120px]" ref={rsiContainerRef} />
+        </div>
+      )}
+
+      {/* Sub-chart: MACD (Hiển thị đồng bộ theo Cấu hình Quản Lý) */}
+      {showMacd && macdActive && (
+        <div className="border-t border-slate-800 bg-slate-950/60 p-2">
+          <div className="flex items-center justify-between text-[11px] px-2 mb-1 text-slate-400 font-mono">
+            <span className="font-semibold text-emerald-400">
+              MACD ({macdFast}, {macdSlow}, {macdSignal})
+            </span>
+            <div className="flex items-center gap-3 font-mono text-[11px]">
+              <span>Đường MACD: <strong className="text-cyan-400">{latestMacd.macd.toFixed(3)}</strong></span>
+              <span>Đường Tín Hiệu: <strong className="text-amber-400">{latestMacd.signal.toFixed(3)}</strong></span>
+              <span>Histogram: <strong className={latestMacd.hist >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{latestMacd.hist >= 0 ? '+' : ''}{latestMacd.hist.toFixed(3)}</strong></span>
+            </div>
+          </div>
+          <div className="w-full h-[120px]" ref={macdContainerRef} />
         </div>
       )}
 

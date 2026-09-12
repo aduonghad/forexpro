@@ -35,7 +35,7 @@ router.get('/config', (req: Request, res: Response) => {
 });
 
 // POST receive TradingView webhook
-router.post('/tradingview', (req: Request, res: Response) => {
+router.post('/tradingview', async (req: Request, res: Response) => {
   try {
     const { secret, ticker, action, lot, sl_pips, tp_pips, message } = req.body;
 
@@ -44,7 +44,7 @@ router.post('/tradingview', (req: Request, res: Response) => {
       return;
     }
 
-    const result = botEngine.handleTradingViewWebhook({
+    const result = await botEngine.handleTradingViewWebhook({
       secret,
       ticker,
       action,

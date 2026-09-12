@@ -15,6 +15,18 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Exit 1
 }
 
+# 2. Kiểm tra MongoDB Service
+try {
+    $mongoService = Get-Service -Name *mongo* -ErrorAction SilentlyContinue
+    if ($mongoService) {
+        if ($mongoService.Status -ne 'Running') {
+            Write-Host "⚠️ Dịch vụ MongoDB đang dừng, đang kích hoạt..." -ForegroundColor Yellow
+            Start-Service $mongoService.Name -ErrorAction SilentlyContinue
+        }
+        Write-Host "✅ Cơ sở dữ liệu: MongoDB Server đang hoạt động ($($mongoService.DisplayName))" -ForegroundColor Green
+    }
+} catch {}
+
 # 2. Tự động giải phóng cổng 3001 và 5173 nếu đang bận
 $ports = @(3001, 5173)
 foreach ($port in $ports) {

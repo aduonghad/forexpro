@@ -247,6 +247,7 @@ export const IndicatorsManagement: React.FC = () => {
     try {
       const updated = await api.updateIndicatorConfig(id, { isActive: active });
       setIndicators(prev => prev.map(ind => ind.id === id ? updated : ind));
+      window.dispatchEvent(new CustomEvent('indicators_updated'));
     } catch (err: any) {
       alert('Lỗi khi bật/tắt chỉ báo: ' + (err?.message || err));
     }
@@ -260,6 +261,7 @@ export const IndicatorsManagement: React.FC = () => {
   const handleSave = async (id: string, updated: Partial<IndicatorConfig>) => {
     const res = await api.updateIndicatorConfig(id, updated);
     setIndicators(prev => prev.map(ind => ind.id === id ? res : ind));
+    window.dispatchEvent(new CustomEvent('indicators_updated'));
   };
 
   const handleReset = async () => {
@@ -267,6 +269,7 @@ export const IndicatorsManagement: React.FC = () => {
       try {
         const fresh = await api.resetIndicatorConfigs();
         setIndicators(fresh);
+        window.dispatchEvent(new CustomEvent('indicators_updated'));
         alert('Đã khôi phục thành công các chỉ báo chuẩn!');
       } catch (err: any) {
         alert('Lỗi khôi phục chỉ báo: ' + (err?.message || err));

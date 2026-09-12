@@ -12,25 +12,26 @@ export class TelegramService {
   private pollingTimer: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.reloadCredentials();
+    this.botToken = CONFIG.TELEGRAM.BOT_TOKEN || '';
+    this.chatId = CONFIG.TELEGRAM.CHAT_ID || '';
   }
 
   /**
    * Reload credentials from config or database settings
    */
-  public reloadCredentials(): void {
-    const dbToken = db.getSetting('telegramBotToken');
-    const dbChatId = db.getSetting('telegramChatId');
-    const dbActive = db.getSetting('telegramAlertsActive');
+  public async reloadCredentials(): Promise<void> {
+    const dbToken = await db.getSetting('telegramBotToken');
+    const dbChatId = await db.getSetting('telegramChatId');
+    const dbActive = await db.getSetting('telegramAlertsActive');
 
     this.botToken = (dbToken && dbToken.trim()) ? dbToken.trim() : (CONFIG.TELEGRAM.BOT_TOKEN || '');
     this.chatId = (dbChatId && dbChatId.trim()) ? dbChatId.trim() : (CONFIG.TELEGRAM.CHAT_ID || '');
     this.notificationsEnabled = dbActive !== 'false';
   }
 
-  public setNotificationsEnabled(enabled: boolean): boolean {
+  public async setNotificationsEnabled(enabled: boolean): Promise<boolean> {
     this.notificationsEnabled = enabled;
-    db.setSetting('telegramAlertsActive', enabled ? 'true' : 'false');
+    await db.setSetting('telegramAlertsActive', enabled ? 'true' : 'false');
     return this.notificationsEnabled;
   }
 
@@ -41,12 +42,12 @@ export class TelegramService {
   /**
    * Update credentials dynamically and restart polling
    */
-  public setCredentials(token: string, chatId: string): void {
+  public async setCredentials(token: string, chatId: string): Promise<void> {
     this.botToken = token.trim();
     this.chatId = chatId.trim();
 
-    db.setSetting('telegramBotToken', this.botToken);
-    db.setSetting('telegramChatId', this.chatId);
+    await db.setSetting('telegramBotToken', this.botToken);
+    await db.setSetting('telegramChatId', this.chatId);
 
     if (this.isPolling) {
       this.stopPolling();
@@ -69,8 +70,8 @@ export class TelegramService {
   /**
    * Initialize service and listen to botEngine events
    */
-  public init(): void {
-    this.reloadCredentials();
+  public async init(): Promise<void> {
+    await this.reloadCredentials();
 
     // Hook into botEngine messages
     botEngine.on('botMessage', (msg: BotMessage) => {
@@ -222,7 +223,7 @@ Bạn có thể gõ các câu lệnh sau trực tiếp trên Telegram:
     }
 
     // Process user command using botEngine's NLP/command router
-    const reply = botEngine.handleUserChatMessage(userText);
+    const reply = await botEngine.handleUserChatMessage(userText);
     
     // Send response back to Telegram
     const responseText = `🤖 *Phản hồi ForexPro*:\n\n${reply.message}`;

@@ -1,7 +1,16 @@
 import axios from 'axios';
-import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe, IndicatorConfig, TradingSignalConfig } from '../types';
+import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe, IndicatorConfig, TradingSignalConfig, User } from '../types';
 
 const API_BASE = '/api';
+
+// Interceptor to inject JWT token into all requests
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('forexpro_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export const api = {
   // Rules CRUD
@@ -207,5 +216,29 @@ export const api = {
   saveTelegramCredentials: async (botToken: string, chatId: string) => {
     const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/credentials`, { botToken, chatId });
     return res.data;
+  },
+
+  // Authentication
+  auth: {
+    getConfig: async () => {
+      const res = await axios.get<{ success: boolean; data: { googleClientId: string; isGoogleAuthEnabled: boolean } }>(`${API_BASE}/auth/config`);
+      return res.data.data;
+    },
+    register: async (params: { email: string; password?: string; name: string }) => {
+      const res = await axios.post<{ success: boolean; data: { user: User; token: string } }>(`${API_BASE}/auth/register`, params);
+      return res.data.data;
+    },
+    login: async (params: { email: string; password?: string }) => {
+      const res = await axios.post<{ success: boolean; data: { user: User; token: string } }>(`${API_BASE}/auth/login`, params);
+      return res.data.data;
+    },
+    googleAuth: async (params: { credential?: string; accessToken?: string }) => {
+      const res = await axios.post<{ success: boolean; data: { user: User; token: string } }>(`${API_BASE}/auth/google`, params);
+      return res.data.data;
+    },
+    getMe: async () => {
+      const res = await axios.get<{ success: boolean; data: { user: User } }>(`${API_BASE}/auth/me`);
+      return res.data.data.user;
+    }
   }
 };

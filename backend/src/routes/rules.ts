@@ -7,24 +7,32 @@ import { wsHub } from '../websocket/wsHub.js';
 const router = Router();
 
 // GET all rules
-router.get('/', (req: Request, res: Response) => {
-  const rules = db.getAllRules();
-  res.json({ success: true, data: rules });
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const rules = await db.getAllRules();
+    res.json({ success: true, data: rules });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET single rule
-router.get('/:id', (req: Request, res: Response) => {
-  const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const rule = db.getRuleById(ruleId);
-  if (!rule) {
-    res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
-    return;
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const rule = await db.getRuleById(ruleId);
+    if (!rule) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
+      return;
+    }
+    res.json({ success: true, data: rule });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
-  res.json({ success: true, data: rule });
 });
 
 // POST create rule
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const {
       name,
@@ -68,7 +76,7 @@ router.post('/', (req: Request, res: Response) => {
       updatedAt: now
     };
 
-    db.saveRule(newRule);
+    await db.saveRule(newRule);
 
     // Notify connected frontend clients
     wsHub.broadcast({
@@ -83,10 +91,10 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // PUT update rule
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   try {
     const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const existing = db.getRuleById(ruleId);
+    const existing = await db.getRuleById(ruleId);
     if (!existing) {
       res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
       return;
@@ -124,7 +132,7 @@ router.put('/:id', (req: Request, res: Response) => {
       updatedAt: Date.now()
     };
 
-    db.saveRule(updatedRule);
+    await db.saveRule(updatedRule);
 
     wsHub.broadcast({
       type: 'RULE_UPDATED',
@@ -138,16 +146,16 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // DELETE rule
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const existing = db.getRuleById(ruleId);
+    const existing = await db.getRuleById(ruleId);
     if (!existing) {
       res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
       return;
     }
 
-    db.deleteRule(ruleId);
+    await db.deleteRule(ruleId);
 
     wsHub.broadcast({
       type: 'RULE_DELETED',

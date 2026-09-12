@@ -14,8 +14,12 @@ dotenv.config({ path: path.resolve(BACKEND_DIR, '.env') });
 export const CONFIG = {
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3001,
   WS_PATH: '/ws',
-  DB_PATH: process.env.DB_PATH || path.resolve(BACKEND_DIR, 'trading.db'),
+  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/forexpro',
   WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || 'exness-pro-secret-2026',
+  JWT_SECRET: process.env.JWT_SECRET || 'forexpro-jwt-secret-key-2026',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '314351424057-s3lami0923qkdmug3q5pgpe09bjb3ump.apps.googleusercontent.com',
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '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',
+  GOOGLE_PROJECT_ID: process.env.GOOGLE_PROJECT_ID || 'trade-pro-508404',
 
   // Telegram Bot Config
   TELEGRAM: {

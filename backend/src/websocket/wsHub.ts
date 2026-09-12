@@ -19,20 +19,30 @@ export class WebSocketHub {
       console.error('WebSocket Server error:', err);
     });
 
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', async (ws: WebSocket) => {
       this.clients.add(ws);
 
-      // Send initial state payload immediately upon connection
-      const initPayload = {
-        type: 'INIT_STATE',
-        data: {
-          account: mt5Bridge.getAccountInfo(),
-          openOrders: db.getOpenOrders(),
-          messages: db.getBotMessages(40),
-          rules: db.getAllRules()
-        }
-      };
-      ws.send(JSON.stringify(initPayload));
+      try {
+        // Send initial state payload immediately upon connection
+        const [openOrders, messages, rules] = await Promise.all([
+          db.getOpenOrders(),
+          db.getBotMessages(40),
+          db.getAllRules()
+        ]);
+
+        const initPayload = {
+          type: 'INIT_STATE',
+          data: {
+            account: mt5Bridge.getAccountInfo(),
+            openOrders,
+            messages,
+            rules
+          }
+        };
+        ws.send(JSON.stringify(initPayload));
+      } catch (err) {
+        console.error('Lỗi nạp INIT_STATE cho WebSocket client:', err);
+      }
 
       ws.on('message', (data: string) => {
         try {
@@ -62,7 +72,7 @@ export class WebSocketHub {
           tick,
           indicators: snap,
           account: mt5Bridge.getAccountInfo(),
-          openOrders: db.getOpenOrders()
+          openOrders: mt5Bridge.getOpenOrders()
         }
       });
     });
@@ -102,7 +112,7 @@ export class WebSocketHub {
     switch (msg.action) {
       case 'CHAT':
         if (msg.text) {
-          botEngine.handleUserChatMessage(msg.text);
+          botEngine.handleUserChatMessage(msg.text).catch(err => console.error(err.message));
         }
         break;
       case 'TOGGLE_BOT':
@@ -114,11 +124,11 @@ export class WebSocketHub {
         break;
       case 'CLOSE_ORDER':
         if (msg.orderId) {
-          mt5Bridge.closeOrder(msg.orderId, 'Đóng thủ công từ Dashboard');
+          mt5Bridge.closeOrder(msg.orderId, 'Đóng thủ công từ Dashboard').catch(err => console.error(err.message));
         }
         break;
       case 'CLOSE_ALL':
-        mt5Bridge.closeAllOrders('Đóng tất cả từ Dashboard');
+        mt5Bridge.closeAllOrders('Đóng tất cả từ Dashboard').catch(err => console.error(err.message));
         break;
       case 'GET_INDICATORS':
         if (msg.symbol) {

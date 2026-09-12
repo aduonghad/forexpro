@@ -6,16 +6,24 @@ import { wsHub } from '../websocket/wsHub.js';
 const router = Router();
 
 // GET open positions
-router.get('/open', (req: Request, res: Response) => {
-  const positions = db.getOpenOrders();
-  res.json({ success: true, data: positions });
+router.get('/open', async (req: Request, res: Response) => {
+  try {
+    const positions = await db.getOpenOrders();
+    res.json({ success: true, data: positions });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET trade history
-router.get('/history', (req: Request, res: Response) => {
-  const allOrders = db.getAllOrders();
-  const history = allOrders.filter(o => o.status === 'CLOSED');
-  res.json({ success: true, data: history });
+router.get('/history', async (req: Request, res: Response) => {
+  try {
+    const allOrders = await db.getAllOrders();
+    const history = allOrders.filter(o => o.status === 'CLOSED');
+    res.json({ success: true, data: history });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET account info
@@ -25,31 +33,43 @@ router.get('/account', (req: Request, res: Response) => {
 });
 
 // POST close single position
-router.post('/close/:id', (req: Request, res: Response) => {
-  const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const order = mt5Bridge.closeOrder(orderId, 'Đóng qua API thủ công');
-  if (!order) {
-    res.status(404).json({ success: false, error: 'Không tìm thấy lệnh hoặc lệnh đã đóng' });
-    return;
+router.post('/close/:id', async (req: Request, res: Response) => {
+  try {
+    const orderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const order = await mt5Bridge.closeOrder(orderId, 'Đóng qua API thủ công');
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy lệnh hoặc lệnh đã đóng' });
+      return;
+    }
+    res.json({ success: true, data: order });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
-  res.json({ success: true, data: order });
 });
 
 // POST close all positions
-router.post('/close-all', (req: Request, res: Response) => {
-  const closed = mt5Bridge.closeAllOrders('Đóng tất cả từ nút khẩn cấp');
-  res.json({ success: true, count: closed.length, data: closed });
+router.post('/close-all', async (req: Request, res: Response) => {
+  try {
+    const closed = await mt5Bridge.closeAllOrders('Đóng tất cả từ nút khẩn cấp');
+    res.json({ success: true, count: closed.length, data: closed });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST reset demo balance
-router.post('/reset-balance', (req: Request, res: Response) => {
-  const amount = req.body.amount ? Number(req.body.amount) : 10000.0;
-  const account = mt5Bridge.resetDemoBalance(amount);
-  wsHub.broadcast({
-    type: 'ACCOUNT_UPDATE',
-    data: account
-  });
-  res.json({ success: true, data: account });
+router.post('/reset-balance', async (req: Request, res: Response) => {
+  try {
+    const amount = req.body.amount ? Number(req.body.amount) : 10000.0;
+    const account = await mt5Bridge.resetDemoBalance(amount);
+    wsHub.broadcast({
+      type: 'ACCOUNT_UPDATE',
+      data: account
+    });
+    res.json({ success: true, data: account });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 export default router;

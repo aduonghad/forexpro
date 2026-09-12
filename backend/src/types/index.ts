@@ -228,3 +228,39 @@ export interface TelegramConfigStatus {
   botUsername?: string;
   botFirstName?: string;
 }
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  passwordHash?: string;
+  googleId?: string;
+  authProvider: 'local' | 'google';
+  role: 'user' | 'admin';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type SafeUser = Omit<User, 'passwordHash'>;
+
+export interface AuthResponse {
+  user: SafeUser;
+  token: string;
+}
+
+export interface RegisterParams {
+  email: string;
+  password?: string;
+  name: string;
+}
+
+export interface LoginParams {
+  email: string;
+  password?: string;
+}
+
+export interface GoogleAuthParams {
+  credential?: string; // ID token
+  accessToken?: string;
+}

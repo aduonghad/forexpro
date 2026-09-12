@@ -6,22 +6,30 @@ import { telegramService } from '../services/telegramService.js';
 const router = Router();
 
 // GET recent bot messages
-router.get('/messages', (req: Request, res: Response) => {
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
-  const messages = db.getBotMessages(limit);
-  res.json({ success: true, data: messages });
+router.get('/messages', async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    const messages = await db.getBotMessages(limit);
+    res.json({ success: true, data: messages });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST user chat to bot
-router.post('/chat', (req: Request, res: Response) => {
-  const { text } = req.body;
-  if (!text || typeof text !== 'string') {
-    res.status(400).json({ success: false, error: 'Thiếu nội dung tin nhắn' });
-    return;
-  }
+router.post('/chat', async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      res.status(400).json({ success: false, error: 'Thiếu nội dung tin nhắn' });
+      return;
+    }
 
-  const reply = botEngine.handleUserChatMessage(text);
-  res.json({ success: true, data: reply });
+    const reply = await botEngine.handleUserChatMessage(text);
+    res.json({ success: true, data: reply });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST toggle bot active
@@ -38,23 +46,31 @@ router.get('/telegram-config', (req: Request, res: Response) => {
 });
 
 // POST update telegram bot credentials
-router.post('/telegram-config', (req: Request, res: Response) => {
-  const { botToken, chatId } = req.body;
-  if (typeof botToken !== 'string' || typeof chatId !== 'string') {
-    res.status(400).json({ success: false, error: 'Thiếu botToken hoặc chatId' });
-    return;
-  }
+router.post('/telegram-config', async (req: Request, res: Response) => {
+  try {
+    const { botToken, chatId } = req.body;
+    if (typeof botToken !== 'string' || typeof chatId !== 'string') {
+      res.status(400).json({ success: false, error: 'Thiếu botToken hoặc chatId' });
+      return;
+    }
 
-  telegramService.setCredentials(botToken, chatId);
-  res.json({ success: true, message: 'Đã cập nhật cấu hình Telegram Bot thành công!', data: telegramService.getCredentials() });
+    await telegramService.setCredentials(botToken, chatId);
+    res.json({ success: true, message: 'Đã cập nhật cấu hình Telegram Bot thành công!', data: telegramService.getCredentials() });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // POST toggle telegram notifications
-router.post('/telegram-toggle', (req: Request, res: Response) => {
-  const { enabled } = req.body;
-  const newStatus = enabled !== undefined ? Boolean(enabled) : !telegramService.isNotificationsEnabled();
-  const currentStatus = telegramService.setNotificationsEnabled(newStatus);
-  res.json({ success: true, notificationsEnabled: currentStatus, message: currentStatus ? 'Đã BẬT đẩy thông báo Telegram' : 'Đã TẮT đẩy thông báo Telegram' });
+router.post('/telegram-toggle', async (req: Request, res: Response) => {
+  try {
+    const { enabled } = req.body;
+    const newStatus = enabled !== undefined ? Boolean(enabled) : !telegramService.isNotificationsEnabled();
+    const currentStatus = await telegramService.setNotificationsEnabled(newStatus);
+    res.json({ success: true, notificationsEnabled: currentStatus, message: currentStatus ? 'Đã BẬT đẩy thông báo Telegram' : 'Đã TẮT đẩy thông báo Telegram' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET overall bot status & alert flags
@@ -86,4 +102,3 @@ router.post('/analysis-toggle', (req: Request, res: Response) => {
 });
 
 export default router;
-

@@ -6,7 +6,7 @@ import { CandlestickPattern, PatternCategory, PatternSignal } from '../types/ind
 const router = Router();
 
 // GET /api/patterns - List patterns with optional filtering
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const { category, signal, active } = req.query;
     const filter: { category?: string; signal?: string; isActive?: boolean } = {};
@@ -15,7 +15,7 @@ router.get('/', (req: Request, res: Response) => {
     if (signal && typeof signal === 'string') filter.signal = signal;
     if (active !== undefined) filter.isActive = active === 'true';
 
-    const patterns = db.getAllPatterns(filter);
+    const patterns = await db.getAllPatterns(filter);
     res.json({ success: true, data: patterns });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -23,10 +23,10 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // GET /api/patterns/:id
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const pattern = db.getPatternById(id);
+    const pattern = await db.getPatternById(id);
     if (!pattern) {
       return res.status(404).json({ success: false, error: 'Không tìm thấy mẫu nến này' });
     }
@@ -37,7 +37,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/patterns - Create pattern
-router.post('/', (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, category, signal, candleCount, description, candles, isActive } = req.body;
 
@@ -63,7 +63,7 @@ router.post('/', (req: Request, res: Response) => {
       updatedAt: now
     };
 
-    const saved = db.savePattern(newPattern);
+    const saved = await db.savePattern(newPattern);
     res.status(201).json({ success: true, data: saved });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -71,10 +71,10 @@ router.post('/', (req: Request, res: Response) => {
 });
 
 // PUT /api/patterns/:id - Update pattern
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const existing = db.getPatternById(id);
+    const existing = await db.getPatternById(id);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Không tìm thấy mẫu nến cần sửa' });
     }
@@ -93,7 +93,7 @@ router.put('/:id', (req: Request, res: Response) => {
       updatedAt: Date.now()
     };
 
-    const saved = db.savePattern(updated);
+    const saved = await db.savePattern(updated);
     res.json({ success: true, data: saved });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -101,15 +101,15 @@ router.put('/:id', (req: Request, res: Response) => {
 });
 
 // DELETE /api/patterns/:id - Delete pattern
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const existing = db.getPatternById(id);
+    const existing = await db.getPatternById(id);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Không tìm thấy mẫu nến cần xoá' });
     }
 
-    db.deletePattern(id);
+    await db.deletePattern(id);
     res.json({ success: true, message: 'Đã xoá mẫu nến thành công', id });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -117,10 +117,10 @@ router.delete('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/patterns/reset - Reset to factory templates
-router.post('/reset', (_req: Request, res: Response) => {
+router.post('/reset', async (_req: Request, res: Response) => {
   try {
-    db.resetPatternsToDefault();
-    const patterns = db.getAllPatterns();
+    await db.resetPatternsToDefault();
+    const patterns = await db.getAllPatterns();
     res.json({ success: true, message: 'Đã khôi phục toàn bộ danh sách nến mẫu chuẩn', data: patterns });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
