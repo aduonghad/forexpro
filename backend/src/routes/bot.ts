@@ -33,8 +33,12 @@ router.post('/chat', optionalAuth, async (req: AuthenticatedRequest, res: Respon
   }
 });
 
-// POST toggle bot active
-router.post('/toggle', (req: Request, res: Response) => {
+// POST toggle bot active (yêu cầu đăng nhập)
+router.post('/toggle', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    res.status(401).json({ success: false, error: 'Vui lòng đăng nhập để bật hoặc tạm dừng Bot' });
+    return;
+  }
   const { active } = req.body;
   const newStatus = active !== undefined ? Boolean(active) : !botEngine.isBotActive();
   botEngine.setBotActive(newStatus);

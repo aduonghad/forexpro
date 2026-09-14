@@ -3,6 +3,7 @@ import { db } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { TradingSignalConfig } from '../types/index.js';
 import { wsHub } from '../websocket/wsHub.js';
+import { optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -31,8 +32,12 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/signals - Create a new trading signal
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Vui lòng đăng nhập tài khoản để tạo tín hiệu' });
+    }
+
     const body = req.body;
     const newSignal: TradingSignalConfig = {
       id: body.id || uuidv4(),
@@ -69,8 +74,12 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // PUT /api/signals/:id - Update an existing trading signal
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Vui lòng đăng nhập tài khoản để điều chỉnh tín hiệu' });
+    }
+
     const id = String(req.params.id);
     const updates = req.body;
     const updated = await db.updateTradingSignal(id, updates);
@@ -91,8 +100,12 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 // DELETE /api/signals/:id - Delete a trading signal
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Vui lòng đăng nhập tài khoản để xoá tín hiệu' });
+    }
+
     const id = String(req.params.id);
     const success = await db.deleteTradingSignal(id);
 
@@ -108,8 +121,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/signals/reset - Reset signals to system defaults
-router.post('/reset', async (req: Request, res: Response) => {
+router.post('/reset', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Vui lòng đăng nhập tài khoản để khôi phục tín hiệu' });
+    }
+
     const fresh = await db.resetTradingSignalsToDefault();
 
     wsHub.broadcast({

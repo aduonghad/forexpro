@@ -33,20 +33,28 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^
     )
 )
 
-:: 4. Tự động cài đặt dependencies nếu chưa có
-if not exist "node_modules" (
+:: 4. Tự động kiểm tra và cài đặt dependencies nếu thiếu thư viện cốt lõi
+if not exist "node_modules\concurrently" (
     echo 📦 Đang cài đặt thư viện gốc [Root dependencies]...
     call npm install
 )
 
-if not exist "backend\node_modules" (
+if not exist "backend\node_modules\mongoose" (
     echo 📦 Đang cài đặt thư viện Backend...
     call npm --prefix backend install
 )
 
-if not exist "frontend\node_modules" (
+if not exist "frontend\node_modules\lightweight-charts" (
     echo 📦 Đang cài đặt thư viện Frontend...
     call npm --prefix frontend install
+)
+
+:: 5. Kiểm tra MongoDB Service
+sc query MongoDB >nul 2>nul
+if %errorlevel% equ 0 (
+    echo ✅ Cơ sở dữ liệu: Dịch vụ MongoDB đã sẵn sàng.
+) else (
+    echo ℹ️ Lưu ý: Đảm bảo MongoDB Server đang chạy trên cổng 27017.
 )
 
 echo.

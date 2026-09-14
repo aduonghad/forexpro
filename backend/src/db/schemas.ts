@@ -6,7 +6,8 @@ import {
   CandlestickPattern,
   IndicatorConfig,
   TradingSignalConfig,
-  User
+  User,
+  ExnessAccount
 } from '../types/index.js';
 
 // --- AutomationRule Schema ---
@@ -260,3 +261,40 @@ const UserSchema = new Schema<User>(
 );
 
 export const UserModel = mongoose.model<User>('User', UserSchema, 'users');
+
+// --- ExnessAccount Schema ---
+const ExnessAccountSchema = new Schema<ExnessAccount>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    userName: { type: String },
+    userEmail: { type: String },
+    accountName: { type: String, required: true },
+    login: { type: String, required: true },
+    server: { type: String, required: true },
+    accountType: { type: String, enum: ['REAL', 'DEMO'], default: 'REAL' },
+    platform: { type: String, enum: ['MT5', 'MT4'], default: 'MT5' },
+    password: { type: String },
+    investorPassword: { type: String },
+    currency: { type: String, default: 'USD' },
+    leverage: { type: Number, default: 500 },
+    balance: { type: Number, default: 10000 },
+    equity: { type: Number, default: 10000 },
+    isActive: { type: Boolean, default: false },
+    status: { type: String, enum: ['CONNECTED', 'DISCONNECTED', 'SYNCING'], default: 'CONNECTED' },
+    lastSyncAt: { type: Number },
+    createdAt: { type: Number, required: true },
+    updatedAt: { type: Number, required: true }
+  },
+  {
+    versionKey: false,
+    toJSON: {
+      transform: (_, ret) => {
+        delete (ret as any)._id;
+        return ret;
+      }
+    }
+  }
+);
+
+export const ExnessAccountModel = mongoose.model<ExnessAccount>('ExnessAccount', ExnessAccountSchema, 'exness_accounts');

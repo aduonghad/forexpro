@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield, LogIn, LogOut, ChevronDown, UserCheck } from 'lucide-react';
+import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield, LogIn, LogOut, ChevronDown, UserCheck, Wallet } from 'lucide-react';
 import { AccountInfo } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { UserTelegramModal } from './telegram/UserTelegramModal';
+import { ExnessAccountModal } from './accounts/ExnessAccountModal';
 
 interface NavbarProps {
   activeTab: 'dashboard' | 'automations';
@@ -28,6 +29,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { user, isAuthenticated, logout, openAuthModal } = useAuth();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
+  const [isExnessModalOpen, setIsExnessModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -65,11 +67,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                   MT5 Bot
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                <span>{account?.server || 'Exness-Real25'}</span>
-                <span>•</span>
-                <span className="font-mono text-slate-300">ID: {account?.login || '88392011'}</span>
-              </p>
+              <button
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    openAuthModal('login');
+                    return;
+                  }
+                  setIsExnessModalOpen(true);
+                }}
+                title={!isAuthenticated ? "Đăng nhập để xem & đổi tài khoản Exness" : "Nhấp để xem danh sách & đổi tài khoản Exness"}
+                className="text-[11px] text-slate-400 hover:text-cyan-300 flex items-center gap-1.5 px-2 py-0.5 mt-0.5 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-cyan-500/40 hover:bg-slate-800/80 transition group text-left cursor-pointer"
+              >
+                {!isAuthenticated ? (
+                  <>
+                    <span className="font-semibold text-slate-400 group-hover:text-cyan-300">Exness MT5</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="font-mono text-amber-400/90 group-hover:text-amber-300">Chưa đăng nhập</span>
+                    <Wallet className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 ml-0.5" />
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-cyan-400 group-hover:text-cyan-300">{account?.server || 'Exness-Real25'}</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="font-mono text-slate-300 group-hover:text-white">ID: {account?.login || '88392011'}</span>
+                    <Wallet className="w-3 h-3 text-cyan-400 opacity-70 group-hover:opacity-100 ml-0.5" />
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -128,8 +152,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <div>
               <span className="text-[10px] uppercase tracking-wider text-slate-400 block leading-tight">Lãi / Lỗ tạm tính</span>
-              <span className={`font-mono text-xs font-bold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {isProfit ? '+' : ''}${pnl.toFixed(2)}
+              <span className={`font-mono text-xs font-bold ${
+                Math.abs(pnl) < 0.005 ? 'text-slate-300' : pnl > 0 ? 'text-emerald-400' : 'text-rose-400'
+              }`}>
+                {Math.abs(pnl) < 0.005 ? '$0.00' : `${pnl > 0 ? '+' : ''}$${pnl.toFixed(2)}`}
               </span>
             </div>
 
@@ -144,14 +170,28 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Bot State Master Toggle */}
           <button
-            onClick={onToggleBot}
+            onClick={() => {
+              if (!isAuthenticated) {
+                openAuthModal('login');
+                return;
+              }
+              onToggleBot();
+            }}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-semibold text-xs transition-all shadow-md ${
-              account?.botActive
+              !isAuthenticated
+                ? 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:border-cyan-500/50 hover:text-cyan-300'
+                : account?.botActive
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
                 : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'
             }`}
+            title={!isAuthenticated ? 'Đăng nhập để bật bot giao dịch của bạn' : account?.botActive ? 'Nhấp để tạm dừng Bot' : 'Nhấp để bật Bot'}
           >
-            {account?.botActive ? (
+            {!isAuthenticated ? (
+              <>
+                <Pause className="w-3.5 h-3.5 fill-slate-500 text-slate-500" />
+                <span>BOT: CẦN ĐĂNG NHẬP</span>
+              </>
+            ) : account?.botActive ? (
               <>
                 <Play className="w-3.5 h-3.5 fill-emerald-400 text-emerald-400" />
                 <span>BOT: ĐANG CHẠY</span>
@@ -234,6 +274,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <button
                       onClick={() => {
                         setUserDropdownOpen(false);
+                        setIsExnessModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-indigo-400 hover:bg-slate-800/80 rounded-xl transition"
+                    >
+                      <Wallet className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Quản Lý Tài Khoản Exness</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setUserDropdownOpen(false);
                         setIsTelegramModalOpen(true);
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-amber-400 hover:bg-slate-800/80 rounded-xl transition"
@@ -282,6 +333,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       <UserTelegramModal
         isOpen={isTelegramModalOpen}
         onClose={() => setIsTelegramModalOpen(false)}
+      />
+
+      <ExnessAccountModal
+        isOpen={isExnessModalOpen}
+        onClose={() => setIsExnessModalOpen(false)}
       />
     </header>
   );

@@ -12,7 +12,7 @@ import { AccountInfo, Order, AutomationRule, BotMessage, Candle, IndicatorSnapsh
 import { useAuth } from './context/AuthContext';
 
 export const App: React.FC = () => {
-  const { user, isAuthenticated, updatePreferences } = useAuth();
+  const { user, isAuthenticated, updatePreferences, openAuthModal } = useAuth();
 
   // Navigation & Routing state
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
@@ -34,6 +34,10 @@ export const App: React.FC = () => {
   }, []);
 
   const navigateToAdmin = () => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     window.history.pushState(null, '', '/admin');
     setIsAdminRoute(true);
   };
@@ -159,8 +163,15 @@ export const App: React.FC = () => {
     });
 
     const unsubInit = wsClient.on('INIT_STATE', (data) => {
-      if (data.account) setAccount(data.account);
       if (data.openOrders) setOrders(data.openOrders);
+      if (data.account) {
+        if (data.openOrders && data.openOrders.length === 0) {
+          data.account.floatingPnl = 0;
+          data.account.openPositionsCount = 0;
+          data.account.equity = data.account.balance;
+        }
+        setAccount(data.account);
+      }
       if (data.messages && !user?.id) setMessages(data.messages.slice(-100));
       if (data.rules && !user?.id) setRules(data.rules);
     });
@@ -172,8 +183,15 @@ export const App: React.FC = () => {
     });
 
     const unsubTick = wsClient.on('TICK', (data) => {
-      if (data.account) setAccount(data.account);
       if (data.openOrders) setOrders(data.openOrders);
+      if (data.account) {
+        if (data.openOrders && data.openOrders.length === 0) {
+          data.account.floatingPnl = 0;
+          data.account.openPositionsCount = 0;
+          data.account.equity = data.account.balance;
+        }
+        setAccount(data.account);
+      }
 
       if (data.tick.symbol === symbol) {
         setCurrentTick({
@@ -263,6 +281,10 @@ export const App: React.FC = () => {
 
   // User Actions
   const handleToggleBot = async () => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     const nextState = !account?.botActive;
     wsClient.toggleBot(nextState);
   };
@@ -288,16 +310,28 @@ export const App: React.FC = () => {
   };
 
   const handleCloseOrder = (orderId: string) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     wsClient.closeOrder(orderId);
   };
 
   const handleCloseAll = () => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     if (window.confirm('Bạn có chắc chắn muốn đóng khẩn cấp toàn bộ các vị thế đang mở?')) {
       wsClient.closeAllOrders();
     }
   };
 
   const handleToggleRule = async (id: string, active: boolean) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     try {
       await api.updateRule(id, { isActive: active });
     } catch (err) {
@@ -306,6 +340,10 @@ export const App: React.FC = () => {
   };
 
   const handleSaveRule = async (ruleData: Partial<AutomationRule>) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     try {
       if (ruleData.id) {
         await api.updateRule(ruleData.id, ruleData);
@@ -318,6 +356,10 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteRule = async (id: string) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     try {
       await api.deleteRule(id);
     } catch (err) {
@@ -329,6 +371,37 @@ export const App: React.FC = () => {
 
   // Render Admin View if current path is /admin
   if (isAdminRoute) {
+    if (!isAuthenticated) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#080d1a] text-slate-100 p-4">
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-16 h-16 mx-auto rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-2xl">
+              🔒
+            </div>
+            <h2 className="text-xl font-bold text-white">Yêu Cầu Đăng Nhập</h2>
+            <p className="text-sm text-slate-400">
+              Bạn cần đăng nhập tài khoản hệ thống trước khi truy cập vào Bảng Quản Trị Admin.
+            </p>
+            <div className="flex gap-3 justify-center pt-2">
+              <button
+                onClick={navigateToTrading}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
+              >
+                Về Trang Chủ
+              </button>
+              <button
+                onClick={() => openAuthModal('login')}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors"
+              >
+                Đăng Nhập Ngay
+              </button>
+            </div>
+          </div>
+          <AuthModal />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex flex-col bg-[#080d1a] text-slate-100">
         {!isAdminAuthenticated ? (
@@ -337,7 +410,7 @@ export const App: React.FC = () => {
             onCancel={navigateToTrading}
           />
         ) : (
-          <main className="flex-1 py-4">
+          <main className="flex-1 flex flex-col min-h-0">
             <ManagementPage
               onBackToTrading={navigateToTrading}
               onLogoutAdmin={handleAdminLogout}

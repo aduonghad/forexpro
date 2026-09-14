@@ -41,20 +41,20 @@ foreach ($port in $ports) {
     } catch {}
 }
 
-# 3. Tự động cài đặt dependencies nếu chưa có
-if (-not (Test-Path "node_modules")) {
+# 3. Tự động cài đặt dependencies nếu chưa có hoặc thiếu package cốt lõi
+if (-not (Test-Path "node_modules/concurrently")) {
     Write-Host "📦 Đang cài đặt thư viện gốc (Root dependencies)..." -ForegroundColor Cyan
     npm install
 }
 
-if (-not (Test-Path "backend/node_modules")) {
+if (-not (Test-Path "backend/node_modules/mongoose")) {
     Write-Host "📦 Đang cài đặt thư viện Backend..." -ForegroundColor Cyan
     Push-Location backend
     npm install
     Pop-Location
 }
 
-if (-not (Test-Path "frontend/node_modules")) {
+if (-not (Test-Path "frontend/node_modules/lightweight-charts")) {
     Write-Host "📦 Đang cài đặt thư viện Frontend..." -ForegroundColor Cyan
     Push-Location frontend
     npm install

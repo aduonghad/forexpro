@@ -58,6 +58,11 @@ router.post('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) 
     }
 
     const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Vui lòng đăng nhập để tạo yêu cầu tự động' });
+      return;
+    }
+
     const isActivating = isActive !== undefined ? Boolean(isActive) : true;
 
     // Check plan quota limits for authenticated user
@@ -122,10 +127,21 @@ router.post('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) 
 // PUT update rule
 router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Vui lòng đăng nhập để cập nhật yêu cầu tự động' });
+      return;
+    }
+
     const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const existing = await db.getRuleById(ruleId);
     if (!existing) {
       res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
+      return;
+    }
+
+    if (existing.userId && existing.userId !== userId) {
+      res.status(403).json({ success: false, error: 'Bạn không có quyền chỉnh sửa yêu cầu này' });
       return;
     }
 
@@ -148,8 +164,7 @@ router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response
     const targetActive = isActive !== undefined ? Boolean(isActive) : existing.isActive;
 
     // Check plan quota limits if toggling to active
-    const userId = req.user?.id || existing.userId;
-    if (userId && targetActive && !existing.isActive) {
+    if (targetActive && !existing.isActive) {
       const user = await db.findUserById(userId);
       const plan = user?.plan || 'free';
       const maxLimit = PLAN_SIGNAL_LIMITS[plan] || 1;
@@ -170,6 +185,7 @@ router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response
 
     const updatedRule: AutomationRule = {
       ...existing,
+      userId: existing.userId || userId,
       signalId: signalId !== undefined ? signalId : existing.signalId,
       name: name !== undefined ? name : existing.name,
       symbol: symbol !== undefined ? symbol : existing.symbol,
@@ -200,12 +216,23 @@ router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response
 });
 
 // DELETE rule
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Vui lòng đăng nhập để xoá yêu cầu tự động' });
+      return;
+    }
+
     const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const existing = await db.getRuleById(ruleId);
     if (!existing) {
       res.status(404).json({ success: false, error: 'Không tìm thấy yêu cầu tự động' });
+      return;
+    }
+
+    if (existing.userId && existing.userId !== userId) {
+      res.status(403).json({ success: false, error: 'Bạn không có quyền xoá yêu cầu này' });
       return;
     }
 

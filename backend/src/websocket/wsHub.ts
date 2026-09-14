@@ -31,17 +31,18 @@ export class WebSocketHub {
       this.clientMeta.set(ws, { symbol: 'XAUUSD', timeframe: 'M1' });
 
       try {
-        // Send initial state payload immediately upon connection
+        // Send initial state payload immediately upon connection (isolated by userId)
+        const meta = this.clientMeta.get(ws);
         const [openOrders, messages, rules] = await Promise.all([
-          db.getOpenOrders(),
-          db.getBotMessages(100),
-          db.getAllRules()
+          meta?.userId ? db.getOpenOrders(meta.userId) : Promise.resolve([]),
+          db.getBotMessages(100, meta?.userId),
+          db.getRulesByUser(meta?.userId)
         ]);
 
         const initPayload = {
           type: 'INIT_STATE',
           data: {
-            account: mt5Bridge.getAccountInfo(),
+            account: mt5Bridge.getAccountInfo(meta?.userId),
             openOrders,
             messages,
             rules
@@ -73,16 +74,29 @@ export class WebSocketHub {
       });
     });
 
-    // Broadcast market ticks
+    // Broadcast market ticks with user-isolated openOrders and account metrics
     marketData.on('tick', (tick: TickData) => {
       const snap = marketData.getIndicators(tick.symbol, 'M1');
-      this.broadcast({
-        type: 'TICK',
-        data: {
-          tick,
-          indicators: snap,
-          account: mt5Bridge.getAccountInfo(),
-          openOrders: mt5Bridge.getOpenOrders()
+      const allOpenOrders = mt5Bridge.getOpenOrders();
+
+      this.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          const meta = this.clientMeta.get(client);
+          // Chỉ gửi openOrders và account tương ứng với user đã đăng nhập
+          const userOpenOrders = meta?.userId
+            ? allOpenOrders.filter(o => o.userId === meta.userId)
+            : [];
+          const userAccount = mt5Bridge.getAccountInfo(meta?.userId);
+
+          client.send(JSON.stringify({
+            type: 'TICK',
+            data: {
+              tick,
+              indicators: snap,
+              account: userAccount,
+              openOrders: userOpenOrders
+            }
+          }));
         }
       });
     });
@@ -110,24 +124,38 @@ export class WebSocketHub {
       });
     });
 
-    // Broadcast order opened
+    // Broadcast order opened (only to the owner user)
     mt5Bridge.on('orderOpened', (order) => {
-      this.broadcast({
-        type: 'ORDER_OPENED',
-        data: {
-          order,
-          account: mt5Bridge.getAccountInfo()
+      this.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          const meta = this.clientMeta.get(client);
+          if (order.userId && meta?.userId === order.userId) {
+            client.send(JSON.stringify({
+              type: 'ORDER_OPENED',
+              data: {
+                order,
+                account: mt5Bridge.getAccountInfo(meta?.userId)
+              }
+            }));
+          }
         }
       });
     });
 
-    // Broadcast order closed
+    // Broadcast order closed (only to the owner user)
     mt5Bridge.on('orderClosed', (data) => {
-      this.broadcast({
-        type: 'ORDER_CLOSED',
-        data: {
-          ...data,
-          account: mt5Bridge.getAccountInfo()
+      this.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          const meta = this.clientMeta.get(client);
+          if (data.order?.userId && meta?.userId === data.order.userId) {
+            client.send(JSON.stringify({
+              type: 'ORDER_CLOSED',
+              data: {
+                ...data,
+                account: mt5Bridge.getAccountInfo(meta?.userId)
+              }
+            }));
+          }
         }
       });
     });
@@ -137,8 +165,11 @@ export class WebSocketHub {
     switch (msg.action) {
       case 'SELECT_VIEW': {
         const prev = this.clientMeta.get(ws) || {};
+        const isLoggingOut = msg.userId === null || msg.userId === '';
+        const currentUserId = isLoggingOut ? undefined : (msg.userId || prev.userId);
+
         const updated: ClientMeta = {
-          userId: msg.userId || prev.userId,
+          userId: currentUserId,
           symbol: (msg.symbol || prev.symbol || 'XAUUSD') as TradingSymbol,
           timeframe: (msg.timeframe || prev.timeframe || 'M1') as Timeframe
         };
@@ -148,17 +179,24 @@ export class WebSocketHub {
           botEngine.setActiveSymbolAndTimeframe(updated.symbol, updated.timeframe);
         }
 
-        // Return user's private message history (max 100) if userId is authenticated
-        if (updated.userId) {
-          db.getBotMessages(100, updated.userId).then(messages => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'INIT_MESSAGES',
-                data: messages
-              }));
-            }
-          }).catch(err => console.error('Lỗi gửi INIT_MESSAGES:', err.message));
-        }
+        // Gửi lại trạng thái riêng biệt (lệnh, tin nhắn, rules) tương ứng với user
+        Promise.all([
+          updated.userId ? db.getOpenOrders(updated.userId) : Promise.resolve([]),
+          db.getBotMessages(100, updated.userId),
+          db.getRulesByUser(updated.userId)
+        ]).then(([openOrders, messages, rules]) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'INIT_STATE',
+              data: {
+                account: mt5Bridge.getAccountInfo(updated.userId),
+                openOrders,
+                messages,
+                rules
+              }
+            }));
+          }
+        }).catch(err => console.error('Lỗi nạp lại INIT_STATE:', err.message));
         break;
       }
 
@@ -173,21 +211,44 @@ export class WebSocketHub {
         break;
       }
 
-      case 'TOGGLE_BOT':
+      case 'TOGGLE_BOT': {
+        const meta = this.clientMeta.get(ws);
+        if (!meta?.userId) {
+          ws.send(JSON.stringify({ type: 'ERROR', message: 'Vui lòng đăng nhập để điều khiển bot.' }));
+          break;
+        }
         botEngine.setBotActive(Boolean(msg.active));
-        this.broadcast({
-          type: 'ACCOUNT_UPDATE',
-          data: mt5Bridge.getAccountInfo()
+        this.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            const m = this.clientMeta.get(client);
+            client.send(JSON.stringify({
+              type: 'ACCOUNT_UPDATE',
+              data: mt5Bridge.getAccountInfo(m?.userId)
+            }));
+          }
         });
         break;
-      case 'CLOSE_ORDER':
+      }
+      case 'CLOSE_ORDER': {
+        const meta = this.clientMeta.get(ws);
+        if (!meta?.userId) {
+          ws.send(JSON.stringify({ type: 'ERROR', message: 'Vui lòng đăng nhập để đóng lệnh.' }));
+          break;
+        }
         if (msg.orderId) {
           mt5Bridge.closeOrder(msg.orderId, 'Đóng thủ công từ Dashboard').catch(err => console.error(err.message));
         }
         break;
-      case 'CLOSE_ALL':
-        mt5Bridge.closeAllOrders('Đóng tất cả từ Dashboard').catch(err => console.error(err.message));
+      }
+      case 'CLOSE_ALL': {
+        const meta = this.clientMeta.get(ws);
+        if (!meta?.userId) {
+          ws.send(JSON.stringify({ type: 'ERROR', message: 'Vui lòng đăng nhập để thao tác.' }));
+          break;
+        }
+        mt5Bridge.closeAllOrders('Đóng tất cả từ Dashboard', meta.userId).catch(err => console.error(err.message));
         break;
+      }
       case 'GET_INDICATORS':
         if (msg.symbol) {
           const indicators = marketData.getIndicators(msg.symbol, msg.timeframe || 'M1');
@@ -215,6 +276,18 @@ export class WebSocketHub {
     this.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(json);
+      }
+    });
+  }
+
+  sendToUser(userId: string, payload: any) {
+    const json = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    this.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        const meta = this.clientMeta.get(client);
+        if (meta?.userId === userId) {
+          client.send(json);
+        }
       }
     });
   }

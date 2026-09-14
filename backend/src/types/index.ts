@@ -107,6 +107,29 @@ export interface AccountInfo {
   botActive: boolean;
 }
 
+export interface ExnessAccount {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  accountName: string;
+  login: string;
+  server: string;
+  accountType: 'REAL' | 'DEMO';
+  platform: 'MT5' | 'MT4';
+  password?: string;
+  investorPassword?: string;
+  currency: string;
+  leverage: number;
+  balance: number;
+  equity: number;
+  isActive: boolean;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'SYNCING';
+  lastSyncAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface IndicatorSnapshot {
   rsi14?: number;
   ema20?: number;

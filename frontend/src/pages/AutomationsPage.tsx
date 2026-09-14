@@ -20,7 +20,7 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
   onSaveRule,
   onDeleteRule
 }) => {
-  const { userPlan, signalLimit } = useAuth();
+  const { isAuthenticated, openAuthModal, userPlan, signalLimit } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSignalSelectorOpen, setIsSignalSelectorOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
@@ -34,16 +34,28 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
   const totalProfit = rules.reduce((acc, r) => acc + r.totalProfit, 0);
 
   const handleOpenAdd = () => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     setEditingRule(null);
     setIsModalOpen(true);
   };
 
   const handleOpenEdit = (rule: AutomationRule) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     setEditingRule(rule);
     setIsModalOpen(true);
   };
 
   const handleToggleWithQuota = (id: string, active: boolean) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     if (active && activeRules >= signalLimit) {
       alert(`Tài khoản gói ${userPlan.toUpperCase()} chỉ cho phép tối đa ${signalLimit === Infinity ? 'vô hạn' : signalLimit} tín hiệu kích hoạt đồng thời.\n\nVui lòng tắt bớt bot khác hoặc liên hệ Admin để nâng cấp gói tài khoản!`);
       return;
@@ -52,6 +64,10 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
   };
 
   const handleDeleteWithConfirm = (id: string) => {
+    if (!isAuthenticated) {
+      openAuthModal('login');
+      return;
+    }
     if (window.confirm('Bạn có chắc chắn muốn xoá yêu cầu tự động này?')) {
       onDeleteRule(id);
     }
@@ -68,6 +84,34 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 space-y-6">
+      {/* Alert banner for guests */}
+      {!isAuthenticated && (
+        <div className="glass-panel rounded-2xl p-5 border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-slate-900/90 to-slate-900/90 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl shadow-amber-500/5">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Chế Độ Xem: Chưa Đăng Nhập Tài Khoản</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                  Tất cả Bot đang Tạm Dừng
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Các auto bot hiện đang ở trạng thái Tắt. Hãy đăng nhập tài khoản cá nhân để bật bot, tùy chỉnh chiến lược và tự động khớp lệnh.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => openAuthModal('login')}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/25 transition shrink-0"
+          >
+            Đăng Nhập Để Bật Bot
+          </button>
+        </div>
+      )}
+
       {/* Top Banner: Metrics & Actions */}
       <div className="glass-panel rounded-2xl p-6 border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>

@@ -8,7 +8,8 @@ import {
   CandlestickPattern,
   IndicatorConfig,
   TradingSignalConfig,
-  User
+  User,
+  ExnessAccount
 } from '../types/index.js';
 import { DEFAULT_PATTERNS } from './defaultPatterns.js';
 import {
@@ -19,7 +20,8 @@ import {
   PatternModel,
   IndicatorConfigModel,
   TradingSignalModel,
-  UserModel
+  UserModel,
+  ExnessAccountModel
 } from './schemas.js';
 
 export const DEFAULT_INDICATOR_CONFIGS: IndicatorConfig[] = [
@@ -132,7 +134,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 15,
     maxOpenPositions: 1,
     cooldownSeconds: 60,
-    isActive: true,
+    isActive: false,
     totalTriggers: 8,
     lastTriggeredAt: Date.now() - 1000 * 60 * 45,
     updatedAt: Date.now()
@@ -165,7 +167,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 15,
     maxOpenPositions: 1,
     cooldownSeconds: 60,
-    isActive: true,
+    isActive: false,
     totalTriggers: 6,
     lastTriggeredAt: Date.now() - 1000 * 60 * 75,
     updatedAt: Date.now()
@@ -198,7 +200,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 20,
     maxOpenPositions: 1,
     cooldownSeconds: 120,
-    isActive: true,
+    isActive: false,
     totalTriggers: 5,
     lastTriggeredAt: Date.now() - 1000 * 60 * 180,
     updatedAt: Date.now()
@@ -231,7 +233,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 20,
     maxOpenPositions: 1,
     cooldownSeconds: 120,
-    isActive: true,
+    isActive: false,
     totalTriggers: 4,
     lastTriggeredAt: Date.now() - 1000 * 60 * 240,
     updatedAt: Date.now()
@@ -258,7 +260,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 15,
     maxOpenPositions: 1,
     cooldownSeconds: 90,
-    isActive: true,
+    isActive: false,
     totalTriggers: 11,
     lastTriggeredAt: Date.now() - 1000 * 60 * 20,
     updatedAt: Date.now()
@@ -285,7 +287,7 @@ export const DEFAULT_TRADING_SIGNALS: TradingSignalConfig[] = [
     trailingStopPips: 15,
     maxOpenPositions: 1,
     cooldownSeconds: 90,
-    isActive: true,
+    isActive: false,
     totalTriggers: 9,
     lastTriggeredAt: Date.now() - 1000 * 60 * 50,
     updatedAt: Date.now()
@@ -323,6 +325,32 @@ class DatabaseService {
       console.log(`✅ Đã kết nối thành công tới MongoDB: ${CONFIG.MONGODB_URI}`);
 
       await this.seedDefaultData();
+
+      // Đảm bảo các bot demo hệ thống không có userId luôn ở trạng thái TẮT (Chỉ chạy khi đăng nhập)
+      await RuleModel.updateMany(
+        { $or: [{ userId: { $exists: false } }, { userId: null }] },
+        { $set: { isActive: false } }
+      );
+
+      // Đảm bảo toàn bộ tín hiệu chiến lược trong kho Admin ở trạng thái TẮT mặc định
+      await TradingSignalModel.updateMany({}, { $set: { isActive: false } });
+
+      // Đóng các lệnh demo mồ côi không gắn với tài khoản người dùng
+      await OrderModel.updateMany(
+        { status: 'OPEN', $or: [{ userId: { $exists: false } }, { userId: null }] },
+        { $set: { status: 'CLOSED', closeTime: Date.now(), closeReason: 'Hệ thống chuyển sang chế độ yêu cầu đăng nhập' } }
+      );
+
+      // Dọn dẹp tài khoản Exness mồ côi không gắn với userId
+      const defaultUser = await UserModel.findOne({ role: 'admin' }) || await UserModel.findOne();
+      if (defaultUser) {
+        await ExnessAccountModel.updateMany(
+          { $or: [{ userId: { $exists: false } }, { userId: null }] },
+          { $set: { userId: defaultUser.id, userName: defaultUser.name, userEmail: defaultUser.email } }
+        );
+      } else {
+        await ExnessAccountModel.deleteMany({ $or: [{ userId: { $exists: false } }, { userId: null }] });
+      }
     } catch (err: any) {
       console.error(`❌ Lỗi kết nối MongoDB: ${err.message}`);
       throw err;
@@ -339,7 +367,7 @@ class DatabaseService {
   async seedDefaultData(): Promise<void> {
     const now = Date.now();
 
-    // 1. Seed Default Automation Rules
+    // 1. Seed Default Automation Rules (Mặc định ở trạng thái TẮT, chỉ làm mẫu)
     const rulesCount = await RuleModel.countDocuments();
     if (rulesCount === 0) {
       const defaultRules: AutomationRule[] = [
@@ -356,7 +384,7 @@ class DatabaseService {
           tpPips: 50,
           trailingStopPips: 15,
           maxOpenPositions: 1,
-          isActive: true,
+          isActive: false,
           totalTrades: 12,
           winTrades: 9,
           totalProfit: 345.50,
@@ -377,7 +405,7 @@ class DatabaseService {
           tpPips: 50,
           trailingStopPips: 15,
           maxOpenPositions: 1,
-          isActive: true,
+          isActive: false,
           totalTrades: 8,
           winTrades: 6,
           totalProfit: 210.00,
@@ -398,7 +426,7 @@ class DatabaseService {
           tpPips: 45,
           trailingStopPips: 10,
           maxOpenPositions: 1,
-          isActive: true,
+          isActive: false,
           totalTrades: 15,
           winTrades: 11,
           totalProfit: 420.00,
@@ -419,7 +447,7 @@ class DatabaseService {
           tpPips: 60,
           trailingStopPips: 20,
           maxOpenPositions: 2,
-          isActive: true,
+          isActive: false,
           totalTrades: 5,
           winTrades: 4,
           totalProfit: 190.00,
@@ -498,16 +526,18 @@ class DatabaseService {
   }
 
   async getRulesByUser(userId?: string): Promise<AutomationRule[]> {
-    let filter: any = {};
     if (userId) {
       const count = await RuleModel.countDocuments({ userId });
       if (count === 0) {
         await this.createDefaultRuleForUser(userId);
       }
-      filter = { userId };
+      const docs = await RuleModel.find({ userId }).sort({ createdAt: -1 }).lean();
+      return cleanDocs<AutomationRule>(docs);
     }
-    const docs = await RuleModel.find(filter).sort({ createdAt: -1 }).lean();
-    return cleanDocs<AutomationRule>(docs);
+    // Đối với người dùng chưa đăng nhập: trả về các chiến lược mẫu nhưng ép trạng thái TẮT (isActive = false)
+    const docs = await RuleModel.find({ $or: [{ userId: { $exists: false } }, { userId: null }] }).sort({ createdAt: -1 }).lean();
+    const rules = cleanDocs<AutomationRule>(docs);
+    return rules.map(r => ({ ...r, isActive: false }));
   }
 
   async getRuleById(id: string): Promise<AutomationRule | null> {
@@ -543,20 +573,26 @@ class DatabaseService {
   }
 
   // --- Orders ---
+  async getAllSystemOpenOrders(): Promise<Order[]> {
+    const docs = await OrderModel.find({ status: 'OPEN' }).sort({ openTime: -1 }).lean();
+    return cleanDocs<Order>(docs);
+  }
+
   async getOpenOrders(userId?: string): Promise<Order[]> {
-    const filter: any = { status: 'OPEN' };
-    if (userId) {
-      filter.$or = [{ userId }, { userId: { $exists: false } }, { userId: null }];
+    if (!userId) {
+      // Người dùng chưa đăng nhập không có vị thế mở nào
+      return [];
     }
+    const filter = { status: 'OPEN', userId };
     const docs = await OrderModel.find(filter).sort({ openTime: -1 }).lean();
     return cleanDocs<Order>(docs);
   }
 
   async getAllOrders(userId?: string): Promise<Order[]> {
-    const filter: any = {};
-    if (userId) {
-      filter.$or = [{ userId }, { userId: { $exists: false } }, { userId: null }];
+    if (!userId) {
+      return [];
     }
+    const filter = { userId };
     const docs = await OrderModel.find(filter).sort({ openTime: -1 }).limit(100).lean();
     return cleanDocs<Order>(docs);
   }
@@ -854,6 +890,129 @@ class DatabaseService {
     };
 
     return this.saveRule(defaultRule);
+  }
+
+  // --- Exness Accounts Management (Strictly User Scoped) ---
+  async getExnessAccounts(userId?: string): Promise<ExnessAccount[]> {
+    if (!userId) {
+      return [];
+    }
+    let docs = await ExnessAccountModel.find({ userId }).sort({ createdAt: -1 }).lean();
+    
+    // If this specific user has no accounts yet, seed a default account for this user
+    if (docs.length === 0) {
+      const user = await this.findUserById(userId);
+      const defaultAccount: ExnessAccount = {
+        id: uuidv4(),
+        userId,
+        userName: user?.name,
+        userEmail: user?.email,
+        accountName: `Exness Standard (${user?.name || 'Cá nhân'})`,
+        login: CONFIG.EXNESS.LOGIN,
+        server: CONFIG.EXNESS.SERVER,
+        accountType: 'REAL',
+        platform: 'MT5',
+        currency: 'USD',
+        leverage: CONFIG.EXNESS.LEVERAGE,
+        balance: CONFIG.EXNESS.STARTING_BALANCE,
+        equity: CONFIG.EXNESS.STARTING_BALANCE,
+        isActive: true,
+        status: 'CONNECTED',
+        lastSyncAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      await this.saveExnessAccount(defaultAccount);
+      docs = [defaultAccount as any];
+    }
+
+    return cleanDocs<ExnessAccount>(docs);
+  }
+
+  async getAllExnessAccounts(): Promise<ExnessAccount[]> {
+    const docs = await ExnessAccountModel.find({}).sort({ createdAt: -1 }).lean();
+    return cleanDocs<ExnessAccount>(docs);
+  }
+
+  async getActiveExnessAccountForUser(userId: string): Promise<ExnessAccount | null> {
+    const doc = await ExnessAccountModel.findOne({ userId, isActive: true }).lean();
+    if (doc) return cleanDoc<ExnessAccount>(doc);
+    const first = await ExnessAccountModel.findOne({ userId }).sort({ createdAt: -1 }).lean();
+    return cleanDoc<ExnessAccount>(first);
+  }
+
+  async getExnessAccountById(id: string): Promise<ExnessAccount | null> {
+    const doc = await ExnessAccountModel.findOne({ id }).lean();
+    return cleanDoc<ExnessAccount>(doc);
+  }
+
+  async saveExnessAccount(account: ExnessAccount): Promise<ExnessAccount> {
+    if (!account.userId) {
+      throw new Error('Tài khoản Exness phải được liên kết với ID người dùng (userId)');
+    }
+    // If this account is active, deactivate other accounts for THIS user only
+    if (account.isActive) {
+      await ExnessAccountModel.updateMany({ userId: account.userId }, { $set: { isActive: false } });
+    }
+
+    await ExnessAccountModel.findOneAndUpdate(
+      { id: account.id },
+      { $set: account },
+      { upsert: true, new: true }
+    );
+    return account;
+  }
+
+  async updateExnessAccount(id: string, updates: Partial<ExnessAccount>, userId?: string, isAdmin: boolean = false): Promise<ExnessAccount | null> {
+    const query: any = { id };
+    if (!isAdmin && userId) {
+      query.userId = userId;
+    }
+
+    const target = await ExnessAccountModel.findOne(query).lean();
+    if (!target) return null;
+
+    if (updates.isActive) {
+      await ExnessAccountModel.updateMany({ userId: target.userId }, { $set: { isActive: false } });
+    }
+
+    const doc = await ExnessAccountModel.findOneAndUpdate(
+      { id },
+      { $set: { ...updates, updatedAt: Date.now() } },
+      { new: true }
+    ).lean();
+
+    return cleanDoc<ExnessAccount>(doc);
+  }
+
+  async deleteExnessAccount(id: string, userId?: string, isAdmin: boolean = false): Promise<boolean> {
+    const query: any = { id };
+    if (!isAdmin && userId) {
+      query.userId = userId;
+    }
+    const res = await ExnessAccountModel.deleteOne(query);
+    return res.deletedCount > 0;
+  }
+
+  async setActiveExnessAccount(id: string, userId?: string, isAdmin: boolean = false): Promise<ExnessAccount | null> {
+    const query: any = { id };
+    if (!isAdmin && userId) {
+      query.userId = userId;
+    }
+
+    const target = await ExnessAccountModel.findOne(query).lean();
+    if (!target) return null;
+
+    // Deactivate other accounts belonging ONLY to this user
+    await ExnessAccountModel.updateMany({ userId: target.userId }, { $set: { isActive: false } });
+    
+    const updated = await ExnessAccountModel.findOneAndUpdate(
+      { id },
+      { $set: { isActive: true, updatedAt: Date.now() } },
+      { new: true }
+    ).lean();
+
+    return cleanDoc<ExnessAccount>(updated);
   }
 }
 

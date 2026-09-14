@@ -1,0 +1,66 @@
+name: Cross-Platform CI (Windows & macOS & Linux)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  cross-platform-build:
+    name: Build & Verify on ${{ matrix.os }} (Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: 📦 Install Root Dependencies
+        run: npm install
+
+      - name: 📦 Install Backend Dependencies
+        run: npm install --prefix backend
+
+      - name: 📦 Install Frontend Dependencies
+        run: npm install --prefix frontend
+
+      - name: 🔍 Run Cross-Platform Environment Checker
+        run: node scripts/check-environment.mjs
+
+      - name: 🔨 Compile Backend (TypeScript)
+        run: npm run build:backend
+
+      - name: 🔨 Build Frontend (React + Vite + TypeScript)
+        run: npm run build:frontend
+
+      - name: 📜 Validate Shell Script Syntax (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: |
+          bash -n start.sh
+          echo "✅ start.sh syntax check passed!"
+
+      - name: 📜 Validate PowerShell Script Syntax (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $content = Get-Content ./start.ps1 -Raw
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseInput($content, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+              Write-Error "Lỗi cú pháp trong start.ps1: $($errors[0].Message)"
+              exit 1
+          }
+          Write-Host "✅ start.ps1 syntax check passed!"

@@ -2,23 +2,34 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db/database.js';
 import { mt5Bridge } from '../services/mt5Bridge.js';
 import { wsHub } from '../websocket/wsHub.js';
+import { optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET open positions
-router.get('/open', async (req: Request, res: Response) => {
+// GET open positions (chỉ trả về lệnh của user đã đăng nhập)
+router.get('/open', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const positions = await db.getOpenOrders();
+    const userId = req.user?.id;
+    if (!userId) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+    const positions = await db.getOpenOrders(userId);
     res.json({ success: true, data: positions });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// GET trade history
-router.get('/history', async (req: Request, res: Response) => {
+// GET trade history (chỉ trả về lịch sử lệnh của user)
+router.get('/history', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const allOrders = await db.getAllOrders();
+    const userId = req.user?.id;
+    if (!userId) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+    const allOrders = await db.getAllOrders(userId);
     const history = allOrders.filter(o => o.status === 'CLOSED');
     res.json({ success: true, data: history });
   } catch (err: any) {
@@ -26,9 +37,9 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
-// GET account info
-router.get('/account', (req: Request, res: Response) => {
-  const account = mt5Bridge.getAccountInfo();
+// GET account info (user-scoped)
+router.get('/account', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  const account = mt5Bridge.getAccountInfo(req.user?.id);
   res.json({ success: true, data: account });
 });
 
@@ -48,9 +59,10 @@ router.post('/close/:id', async (req: Request, res: Response) => {
 });
 
 // POST close all positions
-router.post('/close-all', async (req: Request, res: Response) => {
+router.post('/close-all', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const closed = await mt5Bridge.closeAllOrders('Đóng tất cả từ nút khẩn cấp');
+    const userId = req.user?.id;
+    const closed = await mt5Bridge.closeAllOrders('Đóng tất cả từ nút khẩn cấp', userId);
     res.json({ success: true, count: closed.length, data: closed });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

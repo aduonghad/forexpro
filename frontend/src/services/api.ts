@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe, IndicatorConfig, TradingSignalConfig, User } from '../types';
+import { AutomationRule, Order, AccountInfo, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe, IndicatorConfig, TradingSignalConfig, User, ExnessAccount } from '../types';
 
 const API_BASE = '/api';
 
@@ -227,6 +227,35 @@ export const api = {
   },
   sendUserTelegramTest: async (params?: { botToken?: string; chatId?: string }) => {
     const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/user-test`, params || {});
+    return res.data;
+  },
+
+  // Exness Multi-Account Management
+  getExnessAccounts: async (params?: { all?: boolean; userId?: string }) => {
+    const res = await axios.get<{ success: boolean; data: ExnessAccount[]; requireLogin?: boolean; message?: string }>(
+      `${API_BASE}/exness-accounts`,
+      { params }
+    );
+    return res.data.data;
+  },
+  createExnessAccount: async (account: Partial<ExnessAccount> & { setAsActive?: boolean }) => {
+    const res = await axios.post<{ success: boolean; data: ExnessAccount; message: string }>(`${API_BASE}/exness-accounts`, account);
+    return res.data;
+  },
+  updateExnessAccount: async (id: string, updates: Partial<ExnessAccount>) => {
+    const res = await axios.put<{ success: boolean; data: ExnessAccount; message: string }>(`${API_BASE}/exness-accounts/${id}`, updates);
+    return res.data;
+  },
+  deleteExnessAccount: async (id: string) => {
+    const res = await axios.delete<{ success: boolean; message: string }>(`${API_BASE}/exness-accounts/${id}`);
+    return res.data;
+  },
+  selectExnessAccount: async (id: string) => {
+    const res = await axios.post<{ success: boolean; data: ExnessAccount; accountInfo: AccountInfo; message: string }>(`${API_BASE}/exness-accounts/${id}/select`);
+    return res.data;
+  },
+  testExnessAccount: async (id: string) => {
+    const res = await axios.post<{ success: boolean; data: any }>(`${API_BASE}/exness-accounts/${id}/test-connection`);
     return res.data;
   },
 

@@ -68,52 +68,25 @@ export class TelegramService {
   }
 
   /**
-   * Initialize service and listen to botEngine events
+   * Initialize service (Không phát thông báo toàn cục ở admin, chỉ phục vụ gửi theo cấu hình từng user)
    */
   public async init(): Promise<void> {
     await this.reloadCredentials();
 
-    // Hook into botEngine messages
-    botEngine.on('botMessage', (msg: BotMessage) => {
-      this.handleBotEngineMessage(msg);
-    });
+    // Lưu ý: Đã tắt listener botEngine.on('botMessage') phát thông báo admin chung,
+    // toàn bộ thông báo Telegram được chuyển sang gửi trực tiếp theo cấu hình từng User (sendNotificationToUser).
 
     if (this.botToken && this.chatId) {
-      console.log('🤖 Telegram Bot configured. Starting Telegram polling & notification service...');
-      this.startPolling();
-    } else {
-      console.log('ℹ️ Telegram Bot Token / Chat ID chưa được cấu hình. (Đặt TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID trong .env để kích hoạt)');
+      console.log('🤖 Telegram Service initialized (User-based notification mode enabled).');
     }
   }
 
   /**
-   * Forward BotMessage from engine to Telegram
+   * Forward BotMessage from engine to Telegram (Đã vô hiệu hoá ở cấp Admin)
    */
-  private handleBotEngineMessage(msg: BotMessage): void {
-    if (!this.notificationsEnabled || !this.botToken || !this.chatId) return;
-
-    // Only forward signals & analysis for the currently selected active symbol & timeframe
-    if (msg.type === 'SIGNAL' || msg.type === 'ANALYSIS') {
-      const activeSymbol = botEngine.getActiveSymbol();
-      const activeTimeframe = botEngine.getActiveTimeframe();
-
-      if (msg.symbol && msg.symbol !== activeSymbol) return;
-      if (msg.data?.timeframe && msg.data?.timeframe !== activeTimeframe) return;
-    }
-
-    let icon = '📢';
-    switch (msg.type) {
-      case 'SIGNAL': icon = '🎯'; break;
-      case 'ORDER': icon = '⚡'; break;
-      case 'CLOSE': icon = '🏁'; break;
-      case 'ALERT': icon = '🚨'; break;
-      case 'ANALYSIS': icon = '📊'; break;
-      case 'INFO': icon = 'ℹ️'; break;
-      case 'USER': icon = '💬'; break;
-    }
-
-    const text = `${icon} *${this.escapeMarkdown(msg.title)}*\n\n${this.escapeMarkdown(msg.message)}`;
-    this.sendTelegramMessage(text, 'MarkdownV2');
+  private handleBotEngineMessage(_msg: BotMessage): void {
+    // Không gửi thông báo admin toàn cục
+    return;
   }
 
   /**
@@ -238,8 +211,8 @@ Bạn có thể gõ các câu lệnh sau trực tiếp trên Telegram:
       const user = await db.findUserById(userId);
       if (!user) return false;
 
-      // Check plan eligibility and configured telegram
-      if (user.plan !== 'pro' && user.plan !== 'ultra') return false;
+      // Check plan eligibility or admin role and configured telegram
+      if (user.plan !== 'pro' && user.plan !== 'ultra' && user.role !== 'admin') return false;
       if (!user.telegramBotToken || !user.telegramChatId || user.telegramAlertsActive === false) return false;
 
       const url = `https://api.telegram.org/bot${user.telegramBotToken.trim()}/sendMessage`;

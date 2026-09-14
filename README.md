@@ -113,6 +113,28 @@ Mở trình duyệt truy cập: **`http://localhost:5173`**
 
 ---
 
+## 🛡️ Quy Trình Đảm Bảo Đa Nền Tảng (Cross-Platform Workflow)
+
+Hệ thống được thiết kế và kiểm thử tự động để luôn hoạt động nhất quán 100% trên cả **Windows** và **macOS** (Apple Silicon M-Series & Intel), cũng như Linux:
+
+### 1. Kiểm tra môi trường 1-Click (Cross-Platform Checker)
+Trước khi chạy hoặc sau khi pull code mới về, bạn có thể chạy lệnh kiểm tra tự động:
+```bash
+# Kiểm tra Node.js, Dependencies, MongoDB, và Cổng mạng
+npm run check:env
+
+# Kiểm tra toàn diện (Check môi trường + Build cả Backend & Frontend)
+npm run verify
+```
+
+### 2. Tự động hóa CI/CD qua GitHub Actions
+File workflow [`.github/workflows/cross-platform-ci.yml`](.github/workflows/cross-platform-ci.yml) tự động kiểm tra trên ma trận (Matrix):
+- **Hệ điều hành:** `windows-latest`, `macos-latest`, `ubuntu-latest`
+- **Phiên bản Node:** `20.x`, `22.x`
+- **Các bước xác thực:** Cài đặt dependencies -> Kiểm tra cú pháp script (`start.sh`, `start.ps1`) -> Biên dịch TypeScript Backend -> Build Vite Frontend.
+
+---
+
 ## 📁 Cấu Trúc Thư Mục
 
 ```

@@ -15,6 +15,7 @@ import patternsRouter from './routes/patterns.js';
 import telegramRouter from './routes/telegram.js';
 import indicatorsRouter from './routes/indicators.js';
 import signalsRouter from './routes/signals.js';
+import exnessAccountsRouter from './routes/exnessAccounts.js';
 import { authRouter } from './routes/auth.js';
 import { db } from './db/database.js';
 import { mt5Bridge } from './services/mt5Bridge.js';
@@ -36,6 +37,7 @@ app.use('/api/patterns', patternsRouter);
 app.use('/api/telegram', telegramRouter);
 app.use('/api/indicators', indicatorsRouter);
 app.use('/api/signals', signalsRouter);
+app.use('/api/exness-accounts', exnessAccountsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

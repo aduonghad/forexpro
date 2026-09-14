@@ -187,8 +187,16 @@ export class BotEngineService extends EventEmitter {
     }
   }
 
-  private checkDynamicSwings() {
+  private async checkDynamicSwings() {
     if (!this.swingAlertsActive) return;
+
+    // Chỉ phân tích và gửi tín hiệu swing khi có người dùng đã đăng nhập đang xem biểu đồ
+    let activeViewers: string[] = [];
+    try {
+      const { wsHub } = await import('../websocket/wsHub.js');
+      activeViewers = wsHub.getActiveViewers(this.activeSymbol, this.activeTimeframe);
+    } catch {}
+    if (activeViewers.length === 0) return;
 
     // Only scan dynamic swings for the currently selected active symbol & timeframe
     const symbols: TradingSymbol[] = [this.activeSymbol];
@@ -256,25 +264,28 @@ export class BotEngineService extends EventEmitter {
 • RSI(14): ${snapshot.rsi14} (${rsiStatus})
 • Thời gian chốt đáy: ${timeStr}`;
 
-        const botMsg: BotMessage = {
-          id: uuidv4(),
-          type: 'SIGNAL',
-          title,
-          message,
-          symbol,
-          data: {
-            type: isPeak ? 'SWING_PEAK' : 'SWING_TROUGH',
-            price: lastConfirmed.price,
-            timeframe: tf,
-            time: lastConfirmed.time,
-            rsi: snapshot.rsi14,
-            currentTrend
-          },
-          timestamp: Date.now()
-        };
+        for (const uid of activeViewers) {
+          const botMsg: BotMessage = {
+            id: uuidv4(),
+            userId: uid,
+            type: 'SIGNAL',
+            title,
+            message,
+            symbol,
+            data: {
+              type: isPeak ? 'SWING_PEAK' : 'SWING_TROUGH',
+              price: lastConfirmed.price,
+              timeframe: tf,
+              time: lastConfirmed.time,
+              rsi: snapshot.rsi14,
+              currentTrend
+            },
+            timestamp: Date.now()
+          };
 
-        db.addBotMessage(botMsg).catch(err => console.error('Lỗi lưu swing alert:', err.message));
-        this.emit('botMessage', botMsg);
+          db.addBotMessage(botMsg).catch(err => console.error('Lỗi lưu swing alert:', err.message));
+          this.emit('botMessage', botMsg);
+        }
       }
     }
   }
@@ -284,7 +295,7 @@ export class BotEngineService extends EventEmitter {
 
     // Evaluate dynamic swings, active rules, and trading signals every 1500ms
     this.evalTimer = setInterval(async () => {
-      this.checkDynamicSwings();
+      await this.checkDynamicSwings();
       if (!this.isRunning) return;
       await this.evaluateAllRules();
       await this.evaluateAllSignals();
@@ -303,7 +314,8 @@ export class BotEngineService extends EventEmitter {
 
   private async evaluateAllRules() {
     const allRules = await db.getAllRules();
-    const rules = allRules.filter(r => r.isActive);
+    // Chỉ quét và thực thi các quy tắc của người dùng đã đăng nhập (phải có userId)
+    const rules = allRules.filter(r => r.isActive && !!r.userId);
     if (rules.length === 0) return;
 
     const openOrders = mt5Bridge.getOpenOrders();
@@ -434,11 +446,27 @@ export class BotEngineService extends EventEmitter {
 
     db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
     this.emit('botMessage', msg);
+
+    // Notify user via personal Telegram if configured
+    if (rule.userId) {
+      try {
+        const { telegramService } = await import('./telegramService.js');
+        await telegramService.sendNotificationToUser(rule.userId, msg.title, msg.message);
+      } catch {}
+    }
   }
 
   private async evaluateAllSignals() {
+    // Tín hiệu từ kho chiến lược Admin CHỈ chạy khi có bot của người dùng đã đăng nhập kích hoạt sử dụng
+    const allRules = await db.getAllRules();
+    const activeUserRules = allRules.filter(r => r.isActive && !!r.userId);
+    if (activeUserRules.length === 0) {
+      return;
+    }
+
     const allSignals = await db.getAllTradingSignals();
-    const signals = allSignals.filter(s => s.isActive);
+    // Chỉ quét các tín hiệu mà đang có ít nhất 1 bot của người dùng đăng nhập liên kết sử dụng
+    const signals = allSignals.filter(s => s.isActive && activeUserRules.some(r => r.signalId === s.id || r.name.includes(s.name)));
     if (signals.length === 0) return;
 
     const openOrders = mt5Bridge.getOpenOrders();
@@ -596,9 +624,9 @@ export class BotEngineService extends EventEmitter {
       ? `[Tổ hợp ${signal.conditions.length} chỉ báo - Logic ${signal.logicOperator}]`
       : `[1 Chỉ báo đơn lẻ]`;
 
-    // 1. Find all active user rules associated with this signal
+    // 1. Find all active user rules associated with this signal (phải thuộc về user đã đăng nhập)
     const allRules = await db.getAllRules();
-    const matchingRules = allRules.filter(r => r.isActive && (r.signalId === signal.id || r.name.includes(signal.name)));
+    const matchingRules = allRules.filter(r => r.isActive && !!r.userId && (r.signalId === signal.id || r.name.includes(signal.name)));
 
     const openOrders = mt5Bridge.getOpenOrders();
 
@@ -659,35 +687,6 @@ export class BotEngineService extends EventEmitter {
           } catch {}
         }
       }
-    } else {
-      // Default / System-level execution when no specific user rules are configured
-      const order = await mt5Bridge.openOrder({
-        symbol,
-        type: signal.action,
-        lot: signal.lot,
-        slPips: signal.slPips,
-        tpPips: signal.tpPips,
-        trailingStopPips: signal.trailingStopPips,
-        ruleId: signal.id,
-        ruleName: signal.name
-      });
-
-      const msg: BotMessage = {
-        id: uuidv4(),
-        type: 'ORDER',
-        title: `🤖 Bot Khớp Lệnh Tín Hiệu: ${symbol}`,
-        message: `Khớp lệnh ${actionText} ${signal.lot} lot ${symbol} tại ${order.openPrice}.
-• Chiến lược tín hiệu: "${signal.name}" ${logicBadge}
-• Điều kiện thỏa mãn: ${reason}
-• Cắt lỗ (SL): ${order.sl || 'Không'} | Chốt lời (TP): ${order.tp || 'Không'}`,
-        symbol,
-        orderId: order.id,
-        data: { order, signal },
-        timestamp: Date.now()
-      };
-
-      db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
-      this.emit('botMessage', msg);
     }
   }
 
@@ -725,9 +724,9 @@ export class BotEngineService extends EventEmitter {
       return { success: true, closedCount: closed.length };
     }
 
-    // Find any active rule matching this webhook
+    // Find any active rule matching this webhook (only user-owned rules)
     const allRules = await db.getAllRules();
-    const matchingRule = allRules.find(r => r.symbol === symbol && r.indicator === 'WEBHOOK' && r.isActive);
+    const matchingRule = allRules.find(r => r.symbol === symbol && r.indicator === 'WEBHOOK' && r.isActive && !!r.userId);
 
     const lot = payload.lot || matchingRule?.lot || 0.1;
     const slPips = payload.sl_pips || matchingRule?.slPips || 25;
@@ -779,10 +778,9 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
     } catch {}
 
     const targetUserIds = Array.from(new Set([...activeViewers, ...prefUsers]));
-    const isGlobalActive = symbol === this.activeSymbol && timeframe === this.activeTimeframe;
 
-    // Skip if nobody is viewing/preferring this pair and it is not the active symbol
-    if (targetUserIds.length === 0 && !isGlobalActive) return;
+    // Chỉ gửi phân tích nến đóng khi có người dùng đã đăng nhập đang xem hoặc chọn cặp này
+    if (targetUserIds.length === 0) return;
 
     const snapshot = marketData.getIndicators(symbol, timeframe);
     const price = marketData.getCurrentPrice(symbol);
@@ -824,24 +822,10 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
 • Xu hướng ${timeframe}: ${trendDescription}
 • Bollinger Bands: [${snapshot.bbLower.toFixed(spec.digits)} - ${snapshot.bbUpper.toFixed(spec.digits)}]`;
 
-    if (targetUserIds.length > 0) {
-      for (const uid of targetUserIds) {
-        const msg: BotMessage = {
-          id: uuidv4(),
-          userId: uid,
-          type: 'ANALYSIS',
-          title,
-          message: messageText,
-          symbol,
-          data: { snapshot, price, timeframe, closedCandle, candleAnalysis },
-          timestamp: Date.now()
-        };
-        db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
-        this.emit('botMessage', msg);
-      }
-    } else {
+    for (const uid of targetUserIds) {
       const msg: BotMessage = {
         id: uuidv4(),
+        userId: uid,
         type: 'ANALYSIS',
         title,
         message: messageText,
@@ -854,11 +838,21 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
     }
   }
 
-  generatePeriodicAnalysis(closedCandle?: Candle, targetSymbol?: TradingSymbol, targetTimeframe?: Timeframe) {
+  async generatePeriodicAnalysis(closedCandle?: Candle, targetSymbol?: TradingSymbol, targetTimeframe?: Timeframe) {
     if (!this.analysisAlertsActive) return;
 
     const symbol = targetSymbol || this.activeSymbol;
     const timeframe = targetTimeframe || this.activeTimeframe;
+
+    // Chỉ gửi phân tích định kỳ khi có người dùng đã đăng nhập đang xem biểu đồ
+    let activeViewers: string[] = [];
+    try {
+      const { wsHub } = await import('../websocket/wsHub.js');
+      activeViewers = wsHub.getActiveViewers(symbol, timeframe);
+    } catch {}
+
+    if (activeViewers.length === 0) return;
+
     const snapshot = marketData.getIndicators(symbol, timeframe);
     const price = marketData.getCurrentPrice(symbol);
     const candles = marketData.getCandles(symbol, timeframe);
@@ -894,22 +888,25 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
 
     const titleSuffix = candleAnalysis ? ` - ${candleAnalysis.patternName}` : '';
 
-    const msg: BotMessage = {
-      id: uuidv4(),
-      type: 'ANALYSIS',
-      title: `📊 Phân Tích Đóng Nến: ${symbol} (${timeframe})${titleSuffix}`,
-      message: `Đã đóng 1 nến ${timeframe} của ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
+    for (const uid of activeViewers) {
+      const msg: BotMessage = {
+        id: uuidv4(),
+        userId: uid,
+        type: 'ANALYSIS',
+        title: `📊 Phân Tích Đóng Nến: ${symbol} (${timeframe})${titleSuffix}`,
+        message: `Đã đóng 1 nến ${timeframe} của ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
 ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePriceStr} (Bid: ${price.bid} | Ask: ${price.ask})
 • RSI 14: ${snapshot.rsi14} (${rsiState})
 • Xu hướng ${timeframe}: ${trendDescription}
 • Bollinger Bands: [${snapshot.bbLower.toFixed(spec.digits)} - ${snapshot.bbUpper.toFixed(spec.digits)}]`,
-      symbol,
-      data: { snapshot, price, timeframe, closedCandle, candleAnalysis },
-      timestamp: Date.now()
-    };
+        symbol,
+        data: { snapshot, price, timeframe, closedCandle, candleAnalysis },
+        timestamp: Date.now()
+      };
 
-    db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
-    this.emit('botMessage', msg);
+      db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
+      this.emit('botMessage', msg);
+    }
   }
 
   async handleUserChatMessage(
