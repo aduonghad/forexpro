@@ -13,6 +13,9 @@ import {
 const AutomationRuleSchema = new Schema<AutomationRule>(
   {
     id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, index: true },
+    signalId: { type: String, index: true },
+    isDefaultRule: { type: Boolean, default: false },
     name: { type: String, required: true },
     symbol: { type: String, required: true },
     timeframe: { type: String, required: true },
@@ -49,6 +52,7 @@ export const RuleModel = mongoose.model<AutomationRule>('AutomationRule', Automa
 const OrderSchema = new Schema<Order>(
   {
     id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, index: true },
     ruleId: { type: String },
     ruleName: { type: String },
     symbol: { type: String, required: true },
@@ -85,6 +89,7 @@ export const OrderModel = mongoose.model<Order>('Order', OrderSchema, 'orders');
 const BotMessageSchema = new Schema<BotMessage>(
   {
     id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, index: true },
     type: { type: String, required: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
@@ -233,6 +238,12 @@ const UserSchema = new Schema<User>(
     googleId: { type: String, index: true },
     authProvider: { type: String, required: true, enum: ['local', 'google'], default: 'local' },
     role: { type: String, required: true, enum: ['user', 'admin'], default: 'user' },
+    plan: { type: String, required: true, enum: ['free', 'plus', 'pro', 'ultra'], default: 'free' },
+    lastSymbol: { type: String, default: 'XAUUSD' },
+    lastTimeframe: { type: String, default: 'M1' },
+    telegramBotToken: { type: String },
+    telegramChatId: { type: String },
+    telegramAlertsActive: { type: Boolean, default: true },
     createdAt: { type: Number, required: true },
     updatedAt: { type: Number, required: true }
   },

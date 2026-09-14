@@ -110,3 +110,143 @@ authRouter.get('/me', authenticateToken, async (req: AuthenticatedRequest, res) 
     });
   }
 });
+
+/**
+ * Get all users in database (Admin)
+ */
+authRouter.get('/users', async (_req, res) => {
+  try {
+    const users = await authService.getAllUsers();
+    res.json({
+      success: true,
+      data: users
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Lỗi lấy danh sách người dùng'
+    });
+  }
+});
+
+/**
+ * Create user from admin
+ */
+authRouter.post('/users', async (req, res) => {
+  try {
+    const { email, name, role, password } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, error: 'Email không được để trống' });
+      return;
+    }
+    const user = await authService.createUser({ email, name, role, password });
+    res.status(201).json({
+      success: true,
+      data: user
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Lỗi tạo người dùng'
+    });
+  }
+});
+
+/**
+ * Update current user preferences (lastSymbol, lastTimeframe)
+ */
+authRouter.patch('/preferences', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Chưa đăng nhập' });
+      return;
+    }
+
+    const { symbol, timeframe } = req.body;
+    const updates: any = {};
+    if (symbol) updates.lastSymbol = symbol;
+    if (timeframe) updates.lastTimeframe = timeframe;
+
+    const updated = await authService.updateUserPreferences(req.user.id, updates);
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Lỗi cập nhật cấu hình người dùng'
+    });
+  }
+});
+
+/**
+ * Update user role (admin vs user)
+ */
+authRouter.put('/users/:id/role', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role)) {
+      res.status(400).json({ success: false, error: 'Vai trò không hợp lệ (chỉ chấp nhận "user" hoặc "admin")' });
+      return;
+    }
+    const updated = await authService.updateUserRole(id, role);
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Lỗi cập nhật vai trò người dùng'
+    });
+  }
+});
+
+/**
+ * Update user plan (free, plus, pro, ultra)
+ */
+authRouter.put('/users/:id/plan', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { plan } = req.body;
+    if (!['free', 'plus', 'pro', 'ultra'].includes(plan)) {
+      res.status(400).json({ success: false, error: 'Gói dịch vụ không hợp lệ (free, plus, pro, ultra)' });
+      return;
+    }
+    const updated = await authService.updateUserPlan(id, plan);
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Lỗi cập nhật gói dịch vụ'
+    });
+  }
+});
+
+/**
+ * Delete user from database
+ */
+authRouter.delete('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = await authService.deleteUser(id);
+    if (!success) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy người dùng để xoá' });
+      return;
+    }
+    res.json({
+      success: true,
+      message: 'Xoá người dùng thành công'
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Lỗi xoá người dùng'
+    });
+  }
+});

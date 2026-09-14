@@ -91,12 +91,23 @@ export class AuthService {
       passwordHash,
       authProvider: 'local',
       role: 'user',
+      plan: 'free',
+      lastSymbol: 'XAUUSD',
+      lastTimeframe: 'M1',
+      telegramAlertsActive: true,
       avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(email)}`,
       createdAt: now,
       updatedAt: now
     };
 
     await db.saveUser(newUser);
+
+    // Auto-create default automation rule for the new user
+    try {
+      await db.createDefaultRuleForUser(newUser.id);
+    } catch (err: any) {
+      console.warn('Lỗi tạo rule mặc định cho user:', err.message);
+    }
 
     return {
       user: this.sanitizeUser(newUser),
@@ -259,10 +270,21 @@ export class AuthService {
         avatar: picture || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(email)}`,
         authProvider: 'google',
         role: 'user',
+        plan: 'free',
+        lastSymbol: 'XAUUSD',
+        lastTimeframe: 'M1',
+        telegramAlertsActive: true,
         createdAt: now,
         updatedAt: now
       };
       await db.saveUser(user);
+
+      // Auto-create default automation rule for the new user
+      try {
+        await db.createDefaultRuleForUser(user.id);
+      } catch (err: any) {
+        console.warn('Lỗi tạo rule mặc định cho user Google:', err.message);
+      }
     }
 
     return {
@@ -277,6 +299,89 @@ export class AuthService {
   async getUserById(id: string): Promise<SafeUser | null> {
     const user = await db.findUserById(id);
     return user ? this.sanitizeUser(user) : null;
+  }
+
+  /**
+   * Get all users in database (sanitized)
+   */
+  async getAllUsers(): Promise<SafeUser[]> {
+    const users = await db.getAllUsers();
+    return users.map(u => this.sanitizeUser(u));
+  }
+
+  /**
+   * Update user role
+   */
+  async updateUserRole(id: string, role: 'user' | 'admin'): Promise<SafeUser> {
+    const updated = await db.updateUser(id, { role });
+    return this.sanitizeUser(updated);
+  }
+
+  /**
+   * Update user plan (free, plus, pro, ultra)
+   */
+  async updateUserPlan(id: string, plan: any): Promise<SafeUser> {
+    const updated = await db.updateUserPlan(id, plan);
+    return this.sanitizeUser(updated);
+  }
+
+  /**
+   * Update user trading preferences (lastSymbol, lastTimeframe)
+   */
+  async updateUserPreferences(id: string, prefs: { lastSymbol?: any; lastTimeframe?: any }): Promise<SafeUser> {
+    const updated = await db.updateUserPreferences(id, prefs);
+    return this.sanitizeUser(updated);
+  }
+
+  /**
+   * Delete user
+   */
+  async deleteUser(id: string): Promise<boolean> {
+    return await db.deleteUser(id);
+  }
+
+  /**
+   * Create user from admin portal
+   */
+  async createUser(params: { email: string; name: string; password?: string; role?: 'user' | 'admin'; plan?: any }): Promise<SafeUser> {
+    const email = params.email.trim().toLowerCase();
+    const name = params.name.trim() || email.split('@')[0];
+    const role = params.role || 'user';
+    const plan = params.plan || 'free';
+    const password = params.password?.trim() || 'Exness@2026';
+
+    const existing = await db.findUserByEmail(email);
+    if (existing) {
+      throw new Error('Email này đã tồn tại trong hệ thống');
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+    const now = Date.now();
+
+    const newUser: User = {
+      id: uuidv4(),
+      email,
+      name,
+      passwordHash,
+      authProvider: 'local',
+      role,
+      plan,
+      lastSymbol: 'XAUUSD',
+      lastTimeframe: 'M1',
+      telegramAlertsActive: true,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(email)}`,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await db.saveUser(newUser);
+
+    try {
+      await db.createDefaultRuleForUser(newUser.id);
+    } catch {}
+
+    return this.sanitizeUser(newUser);
   }
 }
 

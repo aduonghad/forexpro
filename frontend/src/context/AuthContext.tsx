@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from '../types';
+import { User, UserPlan, PLAN_SIGNAL_LIMITS, TradingSymbol, Timeframe } from '../types';
 import { api } from '../services/api';
 
 interface AuthContextType {
@@ -11,12 +11,17 @@ interface AuthContextType {
   authMode: 'login' | 'register';
   googleClientId: string;
   isGoogleAuthEnabled: boolean;
+  userPlan: UserPlan;
+  isProOrUltra: boolean;
+  signalLimit: number;
   login: (email: string, password?: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   googleLogin: (credential?: string, accessToken?: string) => Promise<void>;
   logout: () => void;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
+  updatePreferences: (symbol?: TradingSymbol, timeframe?: Timeframe) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,6 +36,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [googleClientId, setGoogleClientId] = useState<string>('');
   const [isGoogleAuthEnabled, setIsGoogleAuthEnabled] = useState<boolean>(false);
+
+  // Computed plan properties
+  const userPlan: UserPlan = user?.plan || 'free';
+  const isProOrUltra = userPlan === 'pro' || userPlan === 'ultra';
+  const signalLimit = PLAN_SIGNAL_LIMITS[userPlan] || 1;
 
   // Load Google Auth Config & verify existing token
   useEffect(() => {
@@ -78,6 +88,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isMounted = false;
     };
   }, []);
+
+  const refreshUser = async () => {
+    try {
+      const profile = await api.auth.getMe();
+      if (profile) {
+        setUser(profile);
+      }
+    } catch {}
+  };
+
+  const updatePreferences = async (symbol?: TradingSymbol, timeframe?: Timeframe) => {
+    if (!user) return;
+    try {
+      const updated = await api.auth.updatePreferences({ symbol, timeframe });
+      setUser(updated);
+    } catch (err) {
+      console.warn('Lỗi cập nhật sở thích người dùng:', err);
+    }
+  };
 
   const login = async (email: string, password?: string) => {
     const data = await api.auth.login({ email, password });
@@ -129,12 +158,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authMode,
         googleClientId,
         isGoogleAuthEnabled,
+        userPlan,
+        isProOrUltra,
+        signalLimit,
         login,
         register,
         googleLogin,
         logout,
         openAuthModal,
-        closeAuthModal
+        closeAuthModal,
+        updatePreferences,
+        refreshUser
       }}
     >
       {children}

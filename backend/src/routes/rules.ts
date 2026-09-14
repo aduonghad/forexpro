@@ -1,15 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database.js';
-import { AutomationRule } from '../types/index.js';
+import { AutomationRule, PLAN_SIGNAL_LIMITS } from '../types/index.js';
 import { wsHub } from '../websocket/wsHub.js';
+import { optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET all rules
-router.get('/', async (req: Request, res: Response) => {
+// GET all rules (filtered by user if authenticated)
+router.get('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const rules = await db.getAllRules();
+    const rules = await db.getRulesByUser(req.user?.id);
     res.json({ success: true, data: rules });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -32,7 +33,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // POST create rule
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       name,
@@ -46,7 +47,9 @@ router.post('/', async (req: Request, res: Response) => {
       tpPips,
       trailingStopPips,
       maxOpenPositions,
-      isActive
+      isActive,
+      signalId,
+      isDefaultRule
     } = req.body;
 
     if (!name || !symbol || !indicator || !action) {
@@ -54,9 +57,35 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    const userId = req.user?.id;
+    const isActivating = isActive !== undefined ? Boolean(isActive) : true;
+
+    // Check plan quota limits for authenticated user
+    if (userId && isActivating) {
+      const user = await db.findUserById(userId);
+      const plan = user?.plan || 'free';
+      const maxLimit = PLAN_SIGNAL_LIMITS[plan] || 1;
+      const userRules = await db.getRulesByUser(userId);
+      const activeCount = userRules.filter(r => r.isActive).length;
+
+      if (activeCount >= maxLimit) {
+        res.status(403).json({
+          success: false,
+          error: `Gói tài khoản ${plan.toUpperCase()} chỉ cho phép tối đa ${maxLimit === Infinity ? 'vô hạn' : maxLimit} tín hiệu kích hoạt đồng thời. Vui lòng tắt bớt bot hoặc nâng cấp gói để tiếp tục!`,
+          plan,
+          maxLimit,
+          activeCount
+        });
+        return;
+      }
+    }
+
     const now = Date.now();
     const newRule: AutomationRule = {
       id: uuidv4(),
+      userId,
+      signalId,
+      isDefaultRule: Boolean(isDefaultRule),
       name,
       symbol,
       timeframe: timeframe || 'M1',
@@ -68,7 +97,7 @@ router.post('/', async (req: Request, res: Response) => {
       tpPips: Number(tpPips) || 50,
       trailingStopPips: Number(trailingStopPips) || 0,
       maxOpenPositions: Number(maxOpenPositions) || 1,
-      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      isActive: isActivating,
       totalTrades: 0,
       winTrades: 0,
       totalProfit: 0,
@@ -91,7 +120,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // PUT update rule
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const ruleId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const existing = await db.getRuleById(ruleId);
@@ -112,11 +141,36 @@ router.put('/:id', async (req: Request, res: Response) => {
       tpPips,
       trailingStopPips,
       maxOpenPositions,
-      isActive
+      isActive,
+      signalId
     } = req.body;
+
+    const targetActive = isActive !== undefined ? Boolean(isActive) : existing.isActive;
+
+    // Check plan quota limits if toggling to active
+    const userId = req.user?.id || existing.userId;
+    if (userId && targetActive && !existing.isActive) {
+      const user = await db.findUserById(userId);
+      const plan = user?.plan || 'free';
+      const maxLimit = PLAN_SIGNAL_LIMITS[plan] || 1;
+      const userRules = await db.getRulesByUser(userId);
+      const activeCount = userRules.filter(r => r.isActive && r.id !== ruleId).length;
+
+      if (activeCount >= maxLimit) {
+        res.status(403).json({
+          success: false,
+          error: `Gói tài khoản ${plan.toUpperCase()} chỉ cho phép tối đa ${maxLimit === Infinity ? 'vô hạn' : maxLimit} tín hiệu kích hoạt đồng thời. Vui lòng tắt bớt bot hoặc nâng cấp gói để tiếp tục!`,
+          plan,
+          maxLimit,
+          activeCount
+        });
+        return;
+      }
+    }
 
     const updatedRule: AutomationRule = {
       ...existing,
+      signalId: signalId !== undefined ? signalId : existing.signalId,
       name: name !== undefined ? name : existing.name,
       symbol: symbol !== undefined ? symbol : existing.symbol,
       timeframe: timeframe !== undefined ? timeframe : existing.timeframe,
@@ -128,7 +182,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       tpPips: tpPips !== undefined ? Number(tpPips) : existing.tpPips,
       trailingStopPips: trailingStopPips !== undefined ? Number(trailingStopPips) : existing.trailingStopPips,
       maxOpenPositions: maxOpenPositions !== undefined ? Number(maxOpenPositions) : existing.maxOpenPositions,
-      isActive: isActive !== undefined ? Boolean(isActive) : existing.isActive,
+      isActive: targetActive,
       updatedAt: Date.now()
     };
 

@@ -23,11 +23,12 @@ export class BotEngineService extends EventEmitter {
     super();
 
     // Hook order close events from mt5Bridge to broadcast to chat
-    mt5Bridge.on('orderClosed', ({ order, pnl, reason }: { order: Order; pnl: number; reason: string }) => {
+    mt5Bridge.on('orderClosed', async ({ order, pnl, reason }: { order: Order; pnl: number; reason: string }) => {
       const isProfit = pnl >= 0;
       const emoji = isProfit ? '🎯' : '🛑';
       const msg: BotMessage = {
         id: uuidv4(),
+        userId: order.userId,
         type: 'CLOSE',
         title: `${emoji} Đóng Lệnh ${order.symbol} (${reason})`,
         message: `Lệnh ${order.type} ${order.lot} lot ${order.symbol} đã đóng tại giá ${order.closePrice}. Lợi nhuận: ${isProfit ? '+' : ''}$${pnl.toFixed(2)} USD.`,
@@ -38,15 +39,21 @@ export class BotEngineService extends EventEmitter {
       };
       db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
       this.emit('botMessage', msg);
+
+      // Notify user on personal telegram if applicable
+      if (order.userId) {
+        try {
+          const { telegramService } = await import('./telegramService.js');
+          await telegramService.sendNotificationToUser(order.userId, msg.title, msg.message);
+        } catch {}
+      }
     });
 
     // Hook candle closed event from marketData to trigger market analysis on candle close
     marketData.on('candleClosed', ({ symbol, timeframe, closedCandle }: { symbol: TradingSymbol; timeframe: Timeframe; closedCandle: Candle }) => {
-      if (symbol === this.activeSymbol && timeframe === this.activeTimeframe) {
-        if (this.analysisAlertsActive && this.isRunning) {
-          this.generatePeriodicAnalysis(closedCandle, symbol, timeframe);
-        }
-      }
+      this.handleCandleClosedAnalysis(symbol, timeframe, closedCandle).catch(err => {
+        console.error('Lỗi khi xử lý phân tích đóng nến:', err.message);
+      });
     });
 
     this.initDynamicSwingTrackers();
@@ -412,6 +419,7 @@ export class BotEngineService extends EventEmitter {
     const actionText = rule.action === 'BUY' ? '🟢 MUA (BUY)' : '🔴 BÁN (SELL)';
     const msg: BotMessage = {
       id: uuidv4(),
+      userId: rule.userId || order.userId,
       type: 'ORDER',
       title: `🤖 Bot Vào Lệnh Tự Động: ${rule.symbol}`,
       message: `Khớp lệnh ${actionText} ${rule.lot} lot ${rule.symbol} tại ${order.openPrice}.
@@ -576,17 +584,6 @@ export class BotEngineService extends EventEmitter {
   }
 
   private async executeTradeForSignal(signal: TradingSignalConfig, reason: string, triggerPrice: number, symbol: TradingSymbol) {
-    const order = await mt5Bridge.openOrder({
-      symbol,
-      type: signal.action,
-      lot: signal.lot,
-      slPips: signal.slPips,
-      tpPips: signal.tpPips,
-      trailingStopPips: signal.trailingStopPips,
-      ruleId: signal.id,
-      ruleName: signal.name
-    });
-
     try {
       await db.updateTradingSignal(signal.id, {
         totalTriggers: (signal.totalTriggers || 0) + 1,
@@ -599,22 +596,99 @@ export class BotEngineService extends EventEmitter {
       ? `[Tổ hợp ${signal.conditions.length} chỉ báo - Logic ${signal.logicOperator}]`
       : `[1 Chỉ báo đơn lẻ]`;
 
-    const msg: BotMessage = {
-      id: uuidv4(),
-      type: 'ORDER',
-      title: `🤖 Bot Khớp Lệnh Tín Hiệu: ${symbol}`,
-      message: `Khớp lệnh ${actionText} ${signal.lot} lot ${symbol} tại ${order.openPrice}.
+    // 1. Find all active user rules associated with this signal
+    const allRules = await db.getAllRules();
+    const matchingRules = allRules.filter(r => r.isActive && (r.signalId === signal.id || r.name.includes(signal.name)));
+
+    const openOrders = mt5Bridge.getOpenOrders();
+
+    if (matchingRules.length > 0) {
+      for (const rule of matchingRules) {
+        // Check open positions limit for this user rule
+        const rulePositions = openOrders.filter(o => o.ruleId === rule.id);
+        if (rulePositions.length >= (rule.maxOpenPositions || 1)) {
+          continue;
+        }
+
+        const order = await mt5Bridge.openOrder({
+          symbol: (rule.symbol || symbol) as TradingSymbol,
+          type: rule.action || signal.action,
+          lot: rule.lot || signal.lot,
+          slPips: rule.slPips !== undefined ? rule.slPips : signal.slPips,
+          tpPips: rule.tpPips !== undefined ? rule.tpPips : signal.tpPips,
+          trailingStopPips: rule.trailingStopPips !== undefined ? rule.trailingStopPips : signal.trailingStopPips,
+          ruleId: rule.id,
+          ruleName: rule.name,
+          userId: rule.userId
+        });
+
+        // Update rule trade stats
+        try {
+          await db.saveRule({
+            ...rule,
+            totalTrades: (rule.totalTrades || 0) + 1,
+            lastTriggeredAt: Date.now(),
+            updatedAt: Date.now()
+          });
+        } catch {}
+
+        const msg: BotMessage = {
+          id: uuidv4(),
+          userId: rule.userId,
+          type: 'ORDER',
+          title: `🤖 Bot Vào Lệnh Tự Động: ${order.symbol}`,
+          message: `Khớp lệnh ${actionText} ${order.lot} lot ${order.symbol} tại ${order.openPrice}.
+• Yêu cầu tự động: "${rule.name}"
+• Tín hiệu: "${signal.name}" ${logicBadge}
+• Điều kiện thỏa mãn: ${reason}
+• Cắt lỗ (SL): ${order.sl || 'Không'} | Chốt lời (TP): ${order.tp || 'Không'}`,
+          symbol: order.symbol,
+          orderId: order.id,
+          data: { order, rule, signal },
+          timestamp: Date.now()
+        };
+
+        db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
+        this.emit('botMessage', msg);
+
+        // Notify user via Telegram if Pro/Ultra and configured
+        if (rule.userId) {
+          try {
+            const { telegramService } = await import('./telegramService.js');
+            await telegramService.sendNotificationToUser(rule.userId, msg.title, msg.message);
+          } catch {}
+        }
+      }
+    } else {
+      // Default / System-level execution when no specific user rules are configured
+      const order = await mt5Bridge.openOrder({
+        symbol,
+        type: signal.action,
+        lot: signal.lot,
+        slPips: signal.slPips,
+        tpPips: signal.tpPips,
+        trailingStopPips: signal.trailingStopPips,
+        ruleId: signal.id,
+        ruleName: signal.name
+      });
+
+      const msg: BotMessage = {
+        id: uuidv4(),
+        type: 'ORDER',
+        title: `🤖 Bot Khớp Lệnh Tín Hiệu: ${symbol}`,
+        message: `Khớp lệnh ${actionText} ${signal.lot} lot ${symbol} tại ${order.openPrice}.
 • Chiến lược tín hiệu: "${signal.name}" ${logicBadge}
 • Điều kiện thỏa mãn: ${reason}
 • Cắt lỗ (SL): ${order.sl || 'Không'} | Chốt lời (TP): ${order.tp || 'Không'}`,
-      symbol,
-      orderId: order.id,
-      data: { order, signal },
-      timestamp: Date.now()
-    };
+        symbol,
+        orderId: order.id,
+        data: { order, signal },
+        timestamp: Date.now()
+      };
 
-    db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
-    this.emit('botMessage', msg);
+      db.addBotMessage(msg).catch(err => console.error('Lỗi lưu bot message:', err.message));
+      this.emit('botMessage', msg);
+    }
   }
 
   async handleTradingViewWebhook(payload: {
@@ -686,8 +760,102 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
     return { success: true, order };
   }
 
-  private generatePeriodicAnalysis(closedCandle?: Candle, targetSymbol?: TradingSymbol, targetTimeframe?: Timeframe) {
-    if (!this.analysisAlertsActive || !this.isRunning) return;
+  async handleCandleClosedAnalysis(symbol: TradingSymbol, timeframe: Timeframe, closedCandle: Candle) {
+    if (!this.analysisAlertsActive) return;
+
+    // 1. Identify active viewers watching this symbol & timeframe from wsHub
+    let activeViewers: string[] = [];
+    try {
+      const { wsHub } = await import('../websocket/wsHub.js');
+      activeViewers = wsHub.getActiveViewers(symbol, timeframe);
+    } catch {}
+
+    // 2. Identify users who have selected this symbol & timeframe in their account preferences
+    let prefUsers: string[] = [];
+    try {
+      const { UserModel } = await import('../db/schemas.js');
+      const users = await UserModel.find({ lastSymbol: symbol, lastTimeframe: timeframe }).select('id').lean();
+      prefUsers = users.map((u: any) => u.id).filter(Boolean);
+    } catch {}
+
+    const targetUserIds = Array.from(new Set([...activeViewers, ...prefUsers]));
+    const isGlobalActive = symbol === this.activeSymbol && timeframe === this.activeTimeframe;
+
+    // Skip if nobody is viewing/preferring this pair and it is not the active symbol
+    if (targetUserIds.length === 0 && !isGlobalActive) return;
+
+    const snapshot = marketData.getIndicators(symbol, timeframe);
+    const price = marketData.getCurrentPrice(symbol);
+    const candles = marketData.getCandles(symbol, timeframe);
+    const candleAnalysis = CandleClassifier.analyzeClosedCandle(candles, symbol, timeframe);
+
+    let trendDescription = 'Đi ngang (Sideway)';
+    if (snapshot.ema20 > snapshot.ema50) {
+      trendDescription = `Tăng điểm ngắn hạn (${timeframe})`;
+    } else if (snapshot.ema20 < snapshot.ema50) {
+      trendDescription = `Điều chỉnh giảm (${timeframe})`;
+    }
+
+    let rsiState = 'Vùng cân bằng';
+    if (snapshot.rsi14 < 35) rsiState = 'Gần vùng quá bán (RSI < 35) - Cơ hội MUA canh đảo chiều';
+    else if (snapshot.rsi14 > 65) rsiState = 'Gần vùng quá mua (RSI > 65) - Cảnh báo kháng cự';
+
+    const spec = CONFIG.SYMBOLS[symbol] || { digits: 2 };
+    const closePriceStr = closedCandle ? closedCandle.close.toFixed(spec.digits) : price.lastPrice.toString();
+
+    let patternSection = '';
+    if (candleAnalysis) {
+      const sigText = candleAnalysis.priceActionSignal === 'CANH_MUA' 
+        ? '🟢 Khuyến nghị: CANH MUA (Bullish)' 
+        : candleAnalysis.priceActionSignal === 'CANH_BAN' 
+        ? '🔴 Khuyến nghị: CANH BÁN (Bearish)' 
+        : '⚪ Khuyến nghị: THEO DÕI';
+      patternSection = `• Mô hình nến vừa đóng: ${candleAnalysis.patternName} (${candleAnalysis.metrics.direction === 'BULLISH' ? 'Nến Xanh Tăng' : candleAnalysis.metrics.direction === 'BEARISH' ? 'Nến Đỏ Giảm' : 'Nến Doji'})
+• Thông số nến: Thân ${candleAnalysis.metrics.bodyPips} pips (${candleAnalysis.metrics.bodyPercent}%) | Râu trên: ${candleAnalysis.metrics.upperWickPips} pips | Râu dưới: ${candleAnalysis.metrics.lowerWickPips} pips
+• Đánh giá Price Action: ${candleAnalysis.sentiment}
+• ${sigText}`;
+    }
+
+    const titleSuffix = candleAnalysis ? ` - ${candleAnalysis.patternName}` : '';
+    const title = `📊 Phân Tích Đóng Nến: ${symbol} (${timeframe})${titleSuffix}`;
+    const messageText = `Đã đóng 1 nến ${timeframe} của ${symbol} lúc ${new Date().toLocaleTimeString('vi-VN')}:
+${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePriceStr} (Bid: ${price.bid} | Ask: ${price.ask})
+• RSI 14: ${snapshot.rsi14} (${rsiState})
+• Xu hướng ${timeframe}: ${trendDescription}
+• Bollinger Bands: [${snapshot.bbLower.toFixed(spec.digits)} - ${snapshot.bbUpper.toFixed(spec.digits)}]`;
+
+    if (targetUserIds.length > 0) {
+      for (const uid of targetUserIds) {
+        const msg: BotMessage = {
+          id: uuidv4(),
+          userId: uid,
+          type: 'ANALYSIS',
+          title,
+          message: messageText,
+          symbol,
+          data: { snapshot, price, timeframe, closedCandle, candleAnalysis },
+          timestamp: Date.now()
+        };
+        db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
+        this.emit('botMessage', msg);
+      }
+    } else {
+      const msg: BotMessage = {
+        id: uuidv4(),
+        type: 'ANALYSIS',
+        title,
+        message: messageText,
+        symbol,
+        data: { snapshot, price, timeframe, closedCandle, candleAnalysis },
+        timestamp: Date.now()
+      };
+      db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
+      this.emit('botMessage', msg);
+    }
+  }
+
+  generatePeriodicAnalysis(closedCandle?: Candle, targetSymbol?: TradingSymbol, targetTimeframe?: Timeframe) {
+    if (!this.analysisAlertsActive) return;
 
     const symbol = targetSymbol || this.activeSymbol;
     const timeframe = targetTimeframe || this.activeTimeframe;
@@ -708,7 +876,7 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
     if (snapshot.rsi14 < 35) rsiState = 'Gần vùng quá bán (RSI < 35) - Cơ hội MUA canh đảo chiều';
     else if (snapshot.rsi14 > 65) rsiState = 'Gần vùng quá mua (RSI > 65) - Cảnh báo kháng cự';
 
-    const spec = CONFIG.SYMBOLS[symbol];
+    const spec = CONFIG.SYMBOLS[symbol] || { digits: 2 };
     const closePriceStr = closedCandle ? closedCandle.close.toFixed(spec.digits) : price.lastPrice.toString();
 
     let patternSection = '';
@@ -744,14 +912,22 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
     this.emit('botMessage', msg);
   }
 
-  async handleUserChatMessage(userText: string): Promise<BotMessage> {
+  async handleUserChatMessage(
+    userText: string,
+    userId?: string,
+    currentSymbol?: TradingSymbol,
+    currentTf?: Timeframe
+  ): Promise<BotMessage> {
     const text = userText.trim().toLowerCase();
+    const activeSym = currentSymbol || this.activeSymbol;
+    const activeTf = currentTf || this.activeTimeframe;
     let replyTitle = '🤖 Trợ Lý Bot Exness';
     let replyContent = '';
 
     // Record user message
     const userMsg: BotMessage = {
       id: uuidv4(),
+      userId,
       type: 'USER',
       title: '👤 Bạn',
       message: userText,
@@ -801,23 +977,26 @@ ${formatSwingStatus('EUR/USD', eurRes)}
 ${formatSwingStatus('BTC/USD', btcRes)}
 Trạng thái chuông báo chat: ${this.swingAlertsActive ? 'ĐANG BẬT 🟢' : 'TẠM TẮT ⏸️'}
 (Bot luôn tự động bắn thông báo lên chat mỗi khi tạo tín hiệu TopDown thành công)`;
-    } else if (text.includes('đóng nến') || text.includes('nến gì') || text.includes('mô hình nến') || text.includes('nến vừa đóng') || text.includes('phân tích nến')) {
-      const candles = marketData.getCandles(this.activeSymbol, this.activeTimeframe);
-      const analysis = CandleClassifier.analyzeClosedCandle(candles, this.activeSymbol, this.activeTimeframe);
-      replyTitle = `🕯️ Phân Tích Đóng Nến: ${this.activeSymbol} (${this.activeTimeframe})`;
+    } else if (text.includes('đóng nến') || text.includes('nến gì') || text.includes('mô hình nến') || text.includes('nến vừa đóng') || text.includes('phân tích nến') || text.includes('phân tích')) {
+      const candles = marketData.getCandles(activeSym, activeTf);
+      const analysis = CandleClassifier.analyzeClosedCandle(candles, activeSym, activeTf);
+      const snap = marketData.getIndicators(activeSym, activeTf);
+      const p = marketData.getCurrentPrice(activeSym);
+      replyTitle = `🕯️ Phân Tích Nến: ${activeSym} (${activeTf})`;
       if (analysis) {
         const sigText = analysis.priceActionSignal === 'CANH_MUA' 
-          ? '🟢 CANH MUA' 
+          ? '🟢 CANH MUA (Bullish)' 
           : analysis.priceActionSignal === 'CANH_BAN' 
-          ? '🔴 CANH BÁN' 
+          ? '🔴 CANH BÁN (Bearish)' 
           : '⚪ THEO DÕI';
-        replyContent = `Nến vừa đóng khung ${this.activeTimeframe} của ${this.activeSymbol}:
+        replyContent = `Nến hiện tại/vừa đóng của ${activeSym} (${activeTf}) lúc ${new Date().toLocaleTimeString('vi-VN')}:
 • Mô hình nhận diện: ${analysis.patternName} (${analysis.metrics.direction === 'BULLISH' ? 'Tăng' : analysis.metrics.direction === 'BEARISH' ? 'Giảm' : 'Doji'})
 • Khuyến nghị: ${sigText} (Độ tin cậy: ${analysis.confidence})
 • Chi tiết nến: Thân ${analysis.metrics.bodyPips} pips (${analysis.metrics.bodyPercent}%), Râu trên ${analysis.metrics.upperWickPips} pips, Râu dưới ${analysis.metrics.lowerWickPips} pips
-• Tâm lý thị trường: ${analysis.sentiment}`;
+• Tâm lý thị trường: ${analysis.sentiment}
+• RSI 14: ${snap.rsi14} | EMA20/50: ${snap.ema20 > snap.ema50 ? 'Xu hướng TĂNG 📈' : 'Xu hướng GIẢM 📉'} | Giá: ${p.lastPrice}`;
       } else {
-        replyContent = `Chưa đủ dữ liệu nến đóng cho cặp ${this.activeSymbol} (${this.activeTimeframe}).`;
+        replyContent = `Chưa đủ dữ liệu nến đóng cho cặp ${activeSym} (${activeTf}).`;
       }
     } else if (text.includes('vàng') || text.includes('xau') || text.includes('gold')) {
       const snap = marketData.getIndicators('XAUUSD', 'M1');
@@ -830,11 +1009,13 @@ Trạng thái chuông báo chat: ${this.swingAlertsActive ? 'ĐANG BẬT 🟢' :
 - "bật thông báo topdown" hoặc "tắt thông báo topdown".
 - "trạng thái": Xem số dư tài khoản và các vị thế.
 - "đóng hết lệnh": Chốt khẩn cấp tất cả vị thế.
+- "phân tích nến" hoặc "phân tích": Cập nhật phân tích kỹ thuật của ${activeSym} (${activeTf}).
 - "phân tích vàng": Cập nhật tín hiệu thị trường Vàng XAU/USD.`;
     }
 
     const replyMsg: BotMessage = {
       id: uuidv4(),
+      userId,
       type: 'INFO',
       title: replyTitle,
       message: replyContent,

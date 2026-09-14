@@ -230,6 +230,73 @@ Bạn có thể gõ các câu lệnh sau trực tiếp trên Telegram:
     await this.sendTelegramMessage(responseText, 'Markdown');
   }
 
+  /**
+   * Send notification directly to a specific user's Telegram chatbot (for Pro/Ultra users)
+   */
+  public async sendNotificationToUser(userId: string, title: string, message: string): Promise<boolean> {
+    try {
+      const user = await db.findUserById(userId);
+      if (!user) return false;
+
+      // Check plan eligibility and configured telegram
+      if (user.plan !== 'pro' && user.plan !== 'ultra') return false;
+      if (!user.telegramBotToken || !user.telegramChatId || user.telegramAlertsActive === false) return false;
+
+      const url = `https://api.telegram.org/bot${user.telegramBotToken.trim()}/sendMessage`;
+      const text = `🤖 *${title}*\n\n${message}`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: user.telegramChatId.trim(),
+          text,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        })
+      });
+
+      const resData = await res.json() as any;
+      if (!resData.ok) {
+        console.warn(`⚠️ Gửi Telegram thất bại tới user ${userId}:`, resData.description);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.error(`❌ Lỗi gửi Telegram tới user ${userId}:`, err?.message || err);
+      return false;
+    }
+  }
+
+  /**
+   * Send test message using custom credentials (for settings preview / validation)
+   */
+  public async sendTestMessageToCredentials(token: string, chatId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const url = `https://api.telegram.org/bot${token.trim()}/sendMessage`;
+      const text = `🔔 *ForexPro Telegram Bot*: Kiểm tra kết nối thành công!\n\nBot của bạn đã được kết nối với tài khoản ForexPro và sẽ nhận thông báo tự động mỗi khi vào/đóng lệnh.`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId.trim(),
+          text,
+          parse_mode: 'Markdown'
+        })
+      });
+
+      const data = await res.json() as any;
+      if (data.ok) {
+        return { success: true, message: 'Gửi tin nhắn thử nghiệm thành công! Vui lòng kiểm tra Telegram của bạn.' };
+      } else {
+        return { success: false, message: `Lỗi từ Telegram API: ${data.description || 'Không thể gửi'}` };
+      }
+    } catch (err: any) {
+      return { success: false, message: `Lỗi kết nối tới Telegram: ${err?.message || 'Không thể kết nối'}` };
+    }
+  }
+
   private escapeMarkdown(text: string): string {
     return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
   }

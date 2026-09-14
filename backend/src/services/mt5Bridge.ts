@@ -6,6 +6,7 @@ import { marketData, TickData } from './marketData.js';
 import { Order, OrderType, TradingSymbol, AccountInfo } from '../types/index.js';
 
 export interface OpenOrderParams {
+  userId?: string;
   symbol: TradingSymbol;
   type: OrderType;
   lot: number;
@@ -120,6 +121,7 @@ export class MT5BridgeService extends EventEmitter {
 
     const newOrder: Order = {
       id: uuidv4(),
+      userId: params.userId,
       ruleId: params.ruleId,
       ruleName: params.ruleName,
       symbol: params.symbol,

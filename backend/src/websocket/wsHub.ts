@@ -4,11 +4,18 @@ import { marketData, TickData } from '../services/marketData.js';
 import { mt5Bridge } from '../services/mt5Bridge.js';
 import { botEngine } from '../services/botEngine.js';
 import { db } from '../db/database.js';
-import { BotMessage } from '../types/index.js';
+import { BotMessage, TradingSymbol, Timeframe } from '../types/index.js';
+
+interface ClientMeta {
+  userId?: string;
+  symbol?: TradingSymbol;
+  timeframe?: Timeframe;
+}
 
 export class WebSocketHub {
   private wss: WebSocketServer | null = null;
   private clients: Set<WebSocket> = new Set();
+  private clientMeta = new Map<WebSocket, ClientMeta>();
 
   init(server: Server) {
     this.wss = new WebSocketServer({ server, path: '/ws' });
@@ -21,12 +28,13 @@ export class WebSocketHub {
 
     this.wss.on('connection', async (ws: WebSocket) => {
       this.clients.add(ws);
+      this.clientMeta.set(ws, { symbol: 'XAUUSD', timeframe: 'M1' });
 
       try {
         // Send initial state payload immediately upon connection
         const [openOrders, messages, rules] = await Promise.all([
           db.getOpenOrders(),
-          db.getBotMessages(40),
+          db.getBotMessages(100),
           db.getAllRules()
         ]);
 
@@ -55,11 +63,13 @@ export class WebSocketHub {
 
       ws.on('close', () => {
         this.clients.delete(ws);
+        this.clientMeta.delete(ws);
       });
 
       ws.on('error', (err) => {
         console.error('WebSocket client error:', err);
         this.clients.delete(ws);
+        this.clientMeta.delete(ws);
       });
     });
 
@@ -77,11 +87,26 @@ export class WebSocketHub {
       });
     });
 
-    // Broadcast bot messages
+    // Broadcast bot messages with user privacy routing
     botEngine.on('botMessage', (msg: BotMessage) => {
-      this.broadcast({
+      const payload = JSON.stringify({
         type: 'BOT_MESSAGE',
         data: msg
+      });
+
+      this.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          const meta = this.clientMeta.get(client);
+          // If message belongs to a specific user, deliver only to that user's client(s)
+          if (msg.userId) {
+            if (meta?.userId === msg.userId) {
+              client.send(payload);
+            }
+          } else {
+            // Global broadcast message (e.g. general market alert without target user)
+            client.send(payload);
+          }
+        }
       });
     });
 
@@ -110,11 +135,44 @@ export class WebSocketHub {
 
   private handleClientMessage(ws: WebSocket, msg: any) {
     switch (msg.action) {
-      case 'CHAT':
-        if (msg.text) {
-          botEngine.handleUserChatMessage(msg.text).catch(err => console.error(err.message));
+      case 'SELECT_VIEW': {
+        const prev = this.clientMeta.get(ws) || {};
+        const updated: ClientMeta = {
+          userId: msg.userId || prev.userId,
+          symbol: (msg.symbol || prev.symbol || 'XAUUSD') as TradingSymbol,
+          timeframe: (msg.timeframe || prev.timeframe || 'M1') as Timeframe
+        };
+        this.clientMeta.set(ws, updated);
+
+        if (updated.symbol && updated.timeframe) {
+          botEngine.setActiveSymbolAndTimeframe(updated.symbol, updated.timeframe);
+        }
+
+        // Return user's private message history (max 100) if userId is authenticated
+        if (updated.userId) {
+          db.getBotMessages(100, updated.userId).then(messages => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'INIT_MESSAGES',
+                data: messages
+              }));
+            }
+          }).catch(err => console.error('Lỗi gửi INIT_MESSAGES:', err.message));
         }
         break;
+      }
+
+      case 'CHAT': {
+        if (msg.text) {
+          const meta = this.clientMeta.get(ws);
+          const userId = msg.userId || meta?.userId;
+          const symbol = msg.symbol || meta?.symbol;
+          const timeframe = msg.timeframe || meta?.timeframe;
+          botEngine.handleUserChatMessage(msg.text, userId, symbol, timeframe).catch(err => console.error(err.message));
+        }
+        break;
+      }
+
       case 'TOGGLE_BOT':
         botEngine.setBotActive(Boolean(msg.active));
         this.broadcast({
@@ -142,13 +200,23 @@ export class WebSocketHub {
     }
   }
 
-  broadcast(payload: any) {
-    const raw = JSON.stringify(payload);
-    for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(raw);
+  getActiveViewers(symbol: TradingSymbol, timeframe: Timeframe): string[] {
+    const userIds = new Set<string>();
+    this.clientMeta.forEach(meta => {
+      if (meta.userId && meta.symbol === symbol && meta.timeframe === timeframe) {
+        userIds.add(meta.userId);
       }
-    }
+    });
+    return Array.from(userIds);
+  }
+
+  broadcast(payload: any) {
+    const json = JSON.stringify(payload);
+    this.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(json);
+      }
+    });
   }
 }
 

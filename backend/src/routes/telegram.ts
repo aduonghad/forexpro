@@ -104,4 +104,136 @@ router.post('/credentials', async (req: Request, res: Response) => {
   }
 });
 
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
+
+// GET /api/telegram/user-status - Get logged-in user's personal telegram configuration
+router.get('/user-status', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Chưa đăng nhập' });
+      return;
+    }
+
+    const user = await db.findUserById(req.user.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy người dùng' });
+      return;
+    }
+
+    const isEligible = user.plan === 'pro' || user.plan === 'ultra';
+    const token = user.telegramBotToken || '';
+    const chatId = user.telegramChatId || '';
+
+    let botInfo: any = null;
+    if (token && isEligible) {
+      try {
+        const checkRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+        const checkData = await checkRes.json() as any;
+        if (checkData.ok) {
+          botInfo = checkData.result;
+        }
+      } catch {}
+    }
+
+    res.json({
+      success: true,
+      data: {
+        isEligible,
+        plan: user.plan,
+        botTokenConfigured: Boolean(token),
+        botTokenMasked: token ? `${token.substring(0, 8)}...${token.substring(token.length - 4)}` : '',
+        chatId,
+        notificationsEnabled: user.telegramAlertsActive !== false,
+        botUsername: botInfo?.username || '',
+        botFirstName: botInfo?.first_name || ''
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/telegram/user-config - Update user's personal telegram token & chat ID
+router.put('/user-config', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Chưa đăng nhập' });
+      return;
+    }
+
+    const user = await db.findUserById(req.user.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy người dùng' });
+      return;
+    }
+
+    if (user.plan !== 'pro' && user.plan !== 'ultra') {
+      res.status(403).json({
+        success: false,
+        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành riêng cho tài khoản gói PRO và ULTRA. Vui lòng nâng cấp gói để sử dụng!'
+      });
+      return;
+    }
+
+    const { botToken, chatId, notificationsEnabled } = req.body;
+    const updates: any = {};
+    if (botToken !== undefined) updates.telegramBotToken = String(botToken).trim();
+    if (chatId !== undefined) updates.telegramChatId = String(chatId).trim();
+    if (notificationsEnabled !== undefined) updates.telegramAlertsActive = Boolean(notificationsEnabled);
+
+    await db.updateUserTelegram(req.user.id, updates);
+
+    res.json({
+      success: true,
+      message: 'Đã cập nhật cấu hình Telegram riêng thành công!'
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/telegram/user-test - Send test message to user's personal telegram
+router.post('/user-test', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Chưa đăng nhập' });
+      return;
+    }
+
+    const user = await db.findUserById(req.user.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'Không tìm thấy người dùng' });
+      return;
+    }
+
+    if (user.plan !== 'pro' && user.plan !== 'ultra') {
+      res.status(403).json({
+        success: false,
+        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành riêng cho tài khoản gói PRO và ULTRA.'
+      });
+      return;
+    }
+
+    const token = req.body.botToken || user.telegramBotToken;
+    const chatId = req.body.chatId || user.telegramChatId;
+
+    if (!token || !chatId) {
+      res.status(400).json({
+        success: false,
+        error: 'Chưa có Bot Token hoặc Chat ID để kiểm tra.'
+      });
+      return;
+    }
+
+    const result = await telegramService.sendTestMessageToCredentials(token, chatId);
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ success: false, error: result.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

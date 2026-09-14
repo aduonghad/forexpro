@@ -2,14 +2,15 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db/database.js';
 import { botEngine } from '../services/botEngine.js';
 import { telegramService } from '../services/telegramService.js';
+import { optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET recent bot messages
-router.get('/messages', async (req: Request, res: Response) => {
+// GET recent bot messages (isolated by user if authenticated, max 100)
+router.get('/messages', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
-    const messages = await db.getBotMessages(limit);
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+    const messages = await db.getBotMessages(limit, req.user?.id);
     res.json({ success: true, data: messages });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -17,15 +18,15 @@ router.get('/messages', async (req: Request, res: Response) => {
 });
 
 // POST user chat to bot
-router.post('/chat', async (req: Request, res: Response) => {
+router.post('/chat', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { text } = req.body;
+    const { text, symbol, timeframe } = req.body;
     if (!text || typeof text !== 'string') {
       res.status(400).json({ success: false, error: 'Thiếu nội dung tin nhắn' });
       return;
     }
 
-    const reply = await botEngine.handleUserChatMessage(text);
+    const reply = await botEngine.handleUserChatMessage(text, req.user?.id, symbol, timeframe);
     res.json({ success: true, data: reply });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

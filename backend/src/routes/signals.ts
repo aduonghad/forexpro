@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { TradingSignalConfig } from '../types/index.js';
+import { wsHub } from '../websocket/wsHub.js';
 
 const router = Router();
 
@@ -54,6 +55,13 @@ router.post('/', async (req: Request, res: Response) => {
     };
 
     const saved = await db.saveTradingSignal(newSignal);
+
+    // Broadcast to all clients
+    wsHub.broadcast({
+      type: 'SIGNALS_UPDATED',
+      data: { action: 'CREATED', signal: saved }
+    });
+
     res.status(201).json({ success: true, data: saved });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -66,6 +74,16 @@ router.put('/:id', async (req: Request, res: Response) => {
     const id = String(req.params.id);
     const updates = req.body;
     const updated = await db.updateTradingSignal(id, updates);
+
+    // Sync any user automation rules running with this signal
+    await db.syncUserRulesWithUpdatedSignal(id, updates);
+
+    // Broadcast update to all clients
+    wsHub.broadcast({
+      type: 'SIGNALS_UPDATED',
+      data: { action: 'UPDATED', signal: updated }
+    });
+
     res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -77,6 +95,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
     const success = await db.deleteTradingSignal(id);
+
+    wsHub.broadcast({
+      type: 'SIGNALS_UPDATED',
+      data: { action: 'DELETED', id }
+    });
+
     res.json({ success, message: 'Đã xoá tín hiệu thành công' });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -87,6 +111,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
 router.post('/reset', async (req: Request, res: Response) => {
   try {
     const fresh = await db.resetTradingSignalsToDefault();
+
+    wsHub.broadcast({
+      type: 'SIGNALS_UPDATED',
+      data: { action: 'RESET', signals: fresh }
+    });
+
     res.json({ success: true, data: fresh });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

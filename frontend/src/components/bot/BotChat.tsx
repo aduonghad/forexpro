@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Target, Info, Check, User, ArrowRight, BarChart3 } from 'lucide-react';
-import { BotMessage, BotMessageType } from '../../types';
+import { BotMessage, BotMessageType, TradingSymbol, Timeframe } from '../../types';
 import { api } from '../../services/api';
 
 interface BotChatProps {
   messages: BotMessage[];
   onSendMessage: (text: string) => void;
   botActive: boolean;
+  symbol?: TradingSymbol;
+  timeframe?: Timeframe;
 }
 
-export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botActive }) => {
+export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botActive, symbol = 'XAUUSD', timeframe = 'M1' }) => {
   const [inputText, setInputText] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(true);
@@ -134,7 +136,26 @@ export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botAc
           </div>
         </div>
 
-        {/* Row 2: Message Filter Toolbar (Separate Row Below) */}
+        {/* Row 2: Active Symbol & Timeframe Monitor Bar */}
+        <div className="px-3.5 py-1.5 bg-slate-950/90 border-b border-slate-800/60 flex items-center justify-between text-[11px]">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+            <span className="text-slate-300 truncate">
+              Đóng nến: <strong className="text-cyan-300 font-bold">{symbol}</strong> ({timeframe})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleQuickPrompt(`phân tích ${symbol} ${timeframe}`)}
+            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 font-semibold shrink-0"
+            title="Kích hoạt phân tích tức thì nến hiện tại"
+          >
+            <Sparkles className="w-3 h-3 text-cyan-400" />
+            <span>Phân tích ngay</span>
+          </button>
+        </div>
+
+        {/* Row 3: Message Filter Toolbar (Separate Row Below) */}
         <div className="px-3.5 py-2 bg-slate-950/60 flex items-center justify-between text-[11px] gap-2">
           <span className="text-[11px] text-slate-400 font-medium shrink-0">Lọc thông báo:</span>
           <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 overflow-x-auto">
@@ -250,40 +271,6 @@ export const BotChat: React.FC<BotChatProps> = ({ messages, onSendMessage, botAc
             );
           })
         )}
-      </div>
-
-      {/* Quick Prompts Bar */}
-      <div className="px-3 pt-2 border-t border-slate-800/60 bg-slate-900/40 flex items-center gap-1.5 overflow-x-auto text-[11px]">
-        <button
-          onClick={() => handleQuickPrompt('topdown')}
-          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 whitespace-nowrap transition flex items-center gap-1 font-semibold"
-        >
-          TopDown
-        </button>
-        <button
-          onClick={() => handleQuickPrompt('phân tích vàng')}
-          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 whitespace-nowrap transition"
-        >
-          📊 Phân tích Vàng
-        </button>
-        <button
-          onClick={() => handleQuickPrompt('trạng thái tài khoản')}
-          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 whitespace-nowrap transition"
-        >
-          🔍 Trạng thái
-        </button>
-        <button
-          onClick={() => handleQuickPrompt('đóng hết lệnh')}
-          className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 whitespace-nowrap transition"
-        >
-          🛑 Đóng hết
-        </button>
-        <button
-          onClick={() => handleQuickPrompt(botActive ? 'tắt bot' : 'bật bot')}
-          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 whitespace-nowrap transition"
-        >
-          {botActive ? '⏸️ Tạm dừng' : '▶️ Bật bot'}
-        </button>
       </div>
 
       {/* Input Chat Bar */}

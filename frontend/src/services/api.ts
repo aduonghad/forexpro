@@ -75,12 +75,12 @@ export const api = {
   },
 
   // Bot & Chat
-  getBotMessages: async (limit: number = 50) => {
+  getBotMessages: async (limit: number = 100) => {
     const res = await axios.get<{ success: boolean; data: BotMessage[] }>(`${API_BASE}/bot/messages`, { params: { limit } });
     return res.data.data;
   },
-  sendChatMessage: async (text: string) => {
-    const res = await axios.post<{ success: boolean; data: BotMessage }>(`${API_BASE}/bot/chat`, { text });
+  sendChatMessage: async (text: string, symbol?: TradingSymbol, timeframe?: Timeframe) => {
+    const res = await axios.post<{ success: boolean; data: BotMessage }>(`${API_BASE}/bot/chat`, { text, symbol, timeframe });
     return res.data.data;
   },
   toggleBot: async (active: boolean) => {
@@ -217,8 +217,20 @@ export const api = {
     const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/credentials`, { botToken, chatId });
     return res.data;
   },
+  getUserTelegramStatus: async () => {
+    const res = await axios.get<{ success: boolean; data: any }>(`${API_BASE}/telegram/user-status`);
+    return res.data.data;
+  },
+  saveUserTelegramConfig: async (params: { botToken?: string; chatId?: string; notificationsEnabled?: boolean }) => {
+    const res = await axios.put<{ success: boolean; message: string }>(`${API_BASE}/telegram/user-config`, params);
+    return res.data;
+  },
+  sendUserTelegramTest: async (params?: { botToken?: string; chatId?: string }) => {
+    const res = await axios.post<{ success: boolean; message: string }>(`${API_BASE}/telegram/user-test`, params || {});
+    return res.data;
+  },
 
-  // Authentication
+  // Authentication & User Profile
   auth: {
     getConfig: async () => {
       const res = await axios.get<{ success: boolean; data: { googleClientId: string; isGoogleAuthEnabled: boolean } }>(`${API_BASE}/auth/config`);
@@ -239,6 +251,30 @@ export const api = {
     getMe: async () => {
       const res = await axios.get<{ success: boolean; data: { user: User } }>(`${API_BASE}/auth/me`);
       return res.data.data.user;
+    },
+    getUsers: async () => {
+      const res = await axios.get<{ success: boolean; data: User[] }>(`${API_BASE}/auth/users`);
+      return res.data.data;
+    },
+    createUser: async (params: { email: string; name: string; password?: string; role?: 'user' | 'admin'; plan?: any }) => {
+      const res = await axios.post<{ success: boolean; data: User }>(`${API_BASE}/auth/users`, params);
+      return res.data.data;
+    },
+    updateUserRole: async (id: string, role: 'user' | 'admin') => {
+      const res = await axios.put<{ success: boolean; data: User }>(`${API_BASE}/auth/users/${id}/role`, { role });
+      return res.data.data;
+    },
+    updateUserPlan: async (id: string, plan: string) => {
+      const res = await axios.put<{ success: boolean; data: User }>(`${API_BASE}/auth/users/${id}/plan`, { plan });
+      return res.data.data;
+    },
+    updatePreferences: async (params: { symbol?: string; timeframe?: string }) => {
+      const res = await axios.patch<{ success: boolean; data: User }>(`${API_BASE}/auth/preferences`, params);
+      return res.data.data;
+    },
+    deleteUser: async (id: string) => {
+      const res = await axios.delete<{ success: boolean; message: string }>(`${API_BASE}/auth/users/${id}`);
+      return res.data;
     }
   }
 };

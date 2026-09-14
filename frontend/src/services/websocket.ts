@@ -97,8 +97,12 @@ class WebSocketClient {
     }
   }
 
-  sendChat(text: string) {
-    this.send('CHAT', { text });
+  selectView(symbol: TradingSymbol, timeframe: string, userId?: string) {
+    this.send('SELECT_VIEW', { symbol, timeframe, userId });
+  }
+
+  sendChat(text: string, meta?: { userId?: string; symbol?: TradingSymbol; timeframe?: string }) {
+    this.send('CHAT', { text, ...meta });
   }
 
   toggleBot(active: boolean) {

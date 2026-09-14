@@ -45,3 +45,16 @@ export function requireAdmin(req: AuthenticatedRequest, res: Response, next: Nex
   }
   next();
 }
+
+export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+  if (token) {
+    const decoded = authService.verifyToken(token);
+    if (decoded) {
+      req.user = decoded;
+    }
+  }
+  next();
+}

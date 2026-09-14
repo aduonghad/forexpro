@@ -497,6 +497,19 @@ class DatabaseService {
     return cleanDocs<AutomationRule>(docs);
   }
 
+  async getRulesByUser(userId?: string): Promise<AutomationRule[]> {
+    let filter: any = {};
+    if (userId) {
+      const count = await RuleModel.countDocuments({ userId });
+      if (count === 0) {
+        await this.createDefaultRuleForUser(userId);
+      }
+      filter = { userId };
+    }
+    const docs = await RuleModel.find(filter).sort({ createdAt: -1 }).lean();
+    return cleanDocs<AutomationRule>(docs);
+  }
+
   async getRuleById(id: string): Promise<AutomationRule | null> {
     const doc = await RuleModel.findOne({ id }).lean();
     return cleanDoc<AutomationRule>(doc);
@@ -516,14 +529,35 @@ class DatabaseService {
     return res.deletedCount > 0;
   }
 
+  async syncUserRulesWithUpdatedSignal(signalId: string, signalData: Partial<TradingSignalConfig>): Promise<void> {
+    const updates: any = {};
+    if (signalData.name) updates.name = signalData.name;
+    if (signalData.symbol && signalData.symbol !== 'ALL') updates.symbol = signalData.symbol;
+    if (signalData.timeframe) updates.timeframe = signalData.timeframe;
+    if (signalData.action) updates.action = signalData.action;
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = Date.now();
+      await RuleModel.updateMany({ signalId }, { $set: updates });
+    }
+  }
+
   // --- Orders ---
-  async getOpenOrders(): Promise<Order[]> {
-    const docs = await OrderModel.find({ status: 'OPEN' }).sort({ openTime: -1 }).lean();
+  async getOpenOrders(userId?: string): Promise<Order[]> {
+    const filter: any = { status: 'OPEN' };
+    if (userId) {
+      filter.$or = [{ userId }, { userId: { $exists: false } }, { userId: null }];
+    }
+    const docs = await OrderModel.find(filter).sort({ openTime: -1 }).lean();
     return cleanDocs<Order>(docs);
   }
 
-  async getAllOrders(): Promise<Order[]> {
-    const docs = await OrderModel.find({}).sort({ openTime: -1 }).limit(100).lean();
+  async getAllOrders(userId?: string): Promise<Order[]> {
+    const filter: any = {};
+    if (userId) {
+      filter.$or = [{ userId }, { userId: { $exists: false } }, { userId: null }];
+    }
+    const docs = await OrderModel.find(filter).sort({ openTime: -1 }).limit(100).lean();
     return cleanDocs<Order>(docs);
   }
 
@@ -542,13 +576,39 @@ class DatabaseService {
   }
 
   // --- Bot Messages ---
-  async getBotMessages(limit: number = 50): Promise<BotMessage[]> {
-    const docs = await BotMessageModel.find({}).sort({ timestamp: -1 }).limit(limit).lean();
+  async getBotMessages(limit: number = 100, userId?: string): Promise<BotMessage[]> {
+    const filter: any = {};
+    if (userId) {
+      filter.userId = userId;
+    } else {
+      filter.$or = [{ userId: { $exists: false } }, { userId: null }];
+    }
+    const docs = await BotMessageModel.find(filter).sort({ timestamp: -1 }).limit(limit).lean();
     return cleanDocs<BotMessage>(docs.reverse());
   }
 
   async addBotMessage(msg: BotMessage): Promise<BotMessage> {
     await BotMessageModel.create(msg);
+    try {
+      // Enforce max 100 messages per user (or max 100 for global messages)
+      const filter = msg.userId
+        ? { userId: msg.userId }
+        : { $or: [{ userId: { $exists: false } }, { userId: null }] };
+      const count = await BotMessageModel.countDocuments(filter);
+      if (count > 100) {
+        const excess = count - 100;
+        const oldest = await BotMessageModel.find(filter)
+          .sort({ timestamp: 1 })
+          .limit(excess)
+          .select('_id')
+          .lean();
+        if (oldest.length > 0) {
+          await BotMessageModel.deleteMany({ _id: { $in: oldest.map(d => d._id) } });
+        }
+      }
+    } catch (err: any) {
+      console.error('Lỗi khi tỉa giới hạn 100 tin nhắn bot:', err.message);
+    }
     return msg;
   }
 
@@ -732,6 +792,68 @@ class DatabaseService {
     };
 
     return this.saveUser(updated);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const docs = await UserModel.find({}).sort({ createdAt: -1 }).lean();
+    return cleanDocs<User>(docs);
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const res = await UserModel.deleteOne({ id });
+    return res.deletedCount > 0;
+  }
+
+  async updateUserPreferences(userId: string, prefs: { lastSymbol?: any; lastTimeframe?: any }): Promise<User> {
+    return this.updateUser(userId, prefs);
+  }
+
+  async updateUserPlan(userId: string, plan: any): Promise<User> {
+    return this.updateUser(userId, { plan });
+  }
+
+  async updateUserTelegram(userId: string, telegramData: { telegramBotToken?: string; telegramChatId?: string; telegramAlertsActive?: boolean }): Promise<User> {
+    return this.updateUser(userId, telegramData);
+  }
+
+  async createDefaultRuleForUser(userId: string): Promise<AutomationRule | null> {
+    // Check if user already has rules
+    const existingRules = await RuleModel.find({ userId }).lean();
+    if (existingRules.length > 0) return null;
+
+    // Find the first active trading signal from admin catalog
+    const signals = await this.getAllTradingSignals();
+    const defaultSignal = signals.find(s => s.isActive) || signals[0];
+    if (!defaultSignal) return null;
+
+    const defaultRule: AutomationRule = {
+      id: uuidv4(),
+      userId,
+      signalId: defaultSignal.id,
+      isDefaultRule: true,
+      name: `[Mặc định] ${defaultSignal.name}`,
+      symbol: (defaultSignal.symbol === 'ALL' ? 'XAUUSD' : defaultSignal.symbol) as any,
+      timeframe: defaultSignal.timeframe,
+      indicator: (defaultSignal.conditions[0]?.indicatorType as any) || 'RSI',
+      condition: {
+        operator: defaultSignal.conditions[0]?.operator === '<' ? '<' : '>',
+        value: Number(defaultSignal.conditions[0]?.value) || 30
+      },
+      action: defaultSignal.action,
+      lot: defaultSignal.lot || 0.05,
+      slPips: defaultSignal.slPips || 30,
+      tpPips: defaultSignal.tpPips || 60,
+      trailingStopPips: defaultSignal.trailingStopPips || 0,
+      maxOpenPositions: defaultSignal.maxOpenPositions || 1,
+      isActive: true,
+      totalTrades: 0,
+      winTrades: 0,
+      totalProfit: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    return this.saveRule(defaultRule);
   }
 }
 

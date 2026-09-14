@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Activity, BarChart3, Sliders, RefreshCw, Zap, Wifi, WifiOff, Play, Pause, Shield, LogIn, LogOut, ChevronDown, UserCheck } from 'lucide-react';
 import { AccountInfo } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { UserTelegramModal } from './telegram/UserTelegramModal';
 
 interface NavbarProps {
   activeTab: 'dashboard' | 'automations';
@@ -26,6 +27,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const { user, isAuthenticated, logout, openAuthModal } = useAuth();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -215,12 +217,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <p className="text-xs font-bold text-white truncate">{user.name}</p>
                       <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.2 mt-0.5 rounded text-[9px] bg-cyan-500/20 text-cyan-300 font-medium border border-cyan-500/30">
-                        {user.authProvider === 'google' ? 'Đăng nhập Google API' : 'Tài khoản Email'}
+                        {user.authProvider === 'google' ? 'Đăng nhập Google' : 'Tài khoản Email'}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 ml-1 px-1.5 py-0.2 mt-0.5 rounded text-[9px] font-bold uppercase border ${
+                        user.plan === 'ultra' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' :
+                        user.plan === 'pro' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                        user.plan === 'plus' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' :
+                        'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}>
+                        Gói {user.plan || 'free'}
                       </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        setIsTelegramModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-amber-400 hover:bg-slate-800/80 rounded-xl transition"
+                    >
+                      <Bot className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Telegram Bot Cá Nhân</span>
+                    </button>
+
                     <button
                       onClick={() => {
                         setUserDropdownOpen(false);
@@ -257,6 +278,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
       </div>
+
+      <UserTelegramModal
+        isOpen={isTelegramModalOpen}
+        onClose={() => setIsTelegramModalOpen(false)}
+      />
     </header>
   );
 };

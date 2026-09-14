@@ -9,7 +9,11 @@ import { api } from './services/api';
 import { wsClient } from './services/websocket';
 import { AccountInfo, Order, AutomationRule, BotMessage, Candle, IndicatorSnapshot, TradingSymbol, Timeframe } from './types';
 
+import { useAuth } from './context/AuthContext';
+
 export const App: React.FC = () => {
+  const { user, isAuthenticated, updatePreferences } = useAuth();
+
   // Navigation & Routing state
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
     return typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
@@ -52,7 +56,7 @@ export const App: React.FC = () => {
   const [messages, setMessages] = useState<BotMessage[]>([]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
-  // Chart state with localStorage persistence
+  // Chart state with account persistence & localStorage fallback
   const [symbol, setSymbolState] = useState<TradingSymbol>(() => {
     try {
       const saved = localStorage.getItem('trading_symbol');
@@ -73,11 +77,24 @@ export const App: React.FC = () => {
     return 'M1';
   });
 
+  // Restore user saved preferences when logged in
+  useEffect(() => {
+    if (user?.lastSymbol && ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'].includes(user.lastSymbol)) {
+      setSymbolState(user.lastSymbol as TradingSymbol);
+    }
+    if (user?.lastTimeframe && ['M1', 'M5', 'M15', 'H1'].includes(user.lastTimeframe)) {
+      setTimeframeState(user.lastTimeframe as Timeframe);
+    }
+  }, [user?.id, user?.lastSymbol, user?.lastTimeframe]);
+
   const setSymbol = (s: TradingSymbol) => {
     setSymbolState(s);
     try {
       localStorage.setItem('trading_symbol', s);
     } catch {}
+    if (isAuthenticated) {
+      updatePreferences(s, timeframe);
+    }
   };
 
   const setTimeframe = (tf: Timeframe) => {
@@ -85,6 +102,9 @@ export const App: React.FC = () => {
     try {
       localStorage.setItem('trading_timeframe', tf);
     } catch {}
+    if (isAuthenticated) {
+      updatePreferences(symbol, tf);
+    }
   };
 
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -113,17 +133,42 @@ export const App: React.FC = () => {
     loadCandles(symbol, timeframe);
   }, [symbol, timeframe, loadCandles]);
 
+  // Load rules and messages specifically for current user
+  useEffect(() => {
+    api.getRules().then(data => {
+      if (Array.isArray(data)) setRules(data);
+    }).catch(err => console.warn('Lỗi tải rules:', err));
+
+    api.getBotMessages(100).then(msgs => {
+      if (Array.isArray(msgs)) setMessages(msgs);
+    }).catch(err => console.warn('Lỗi tải tin nhắn bot:', err));
+  }, [user?.id]);
+
+  // Sync active symbol & timeframe with backend & WebSocket hub
+  useEffect(() => {
+    wsClient.selectView(symbol, timeframe, user?.id);
+  }, [symbol, timeframe, user?.id]);
+
   // WebSocket listeners
   useEffect(() => {
     const unsubConn = wsClient.on('connection', ({ connected }) => {
       setIsConnected(connected);
+      if (connected) {
+        wsClient.selectView(symbol, timeframe, user?.id);
+      }
     });
 
     const unsubInit = wsClient.on('INIT_STATE', (data) => {
       if (data.account) setAccount(data.account);
       if (data.openOrders) setOrders(data.openOrders);
-      if (data.messages) setMessages(data.messages);
-      if (data.rules) setRules(data.rules);
+      if (data.messages && !user?.id) setMessages(data.messages.slice(-100));
+      if (data.rules && !user?.id) setRules(data.rules);
+    });
+
+    const unsubInitMsgs = wsClient.on('INIT_MESSAGES', (data) => {
+      if (Array.isArray(data)) {
+        setMessages(data.slice(-100));
+      }
     });
 
     const unsubTick = wsClient.on('TICK', (data) => {
@@ -158,7 +203,13 @@ export const App: React.FC = () => {
     });
 
     const unsubBotMsg = wsClient.on('BOT_MESSAGE', (msg: BotMessage) => {
-      setMessages(prev => [...prev, msg]);
+      // If message is for another user, do not add
+      if (msg.userId && user?.id && msg.userId !== user.id) return;
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        const updated = [...prev, msg];
+        return updated.length > 100 ? updated.slice(-100) : updated;
+      });
     });
 
     const unsubOrderOpened = wsClient.on('ORDER_OPENED', (data) => {
@@ -187,9 +238,17 @@ export const App: React.FC = () => {
       setRules(prev => prev.filter(r => r.id !== id));
     });
 
+    const unsubSignalsUpdated = wsClient.on('SIGNALS_UPDATED', async () => {
+      try {
+        const freshRules = await api.getRules();
+        setRules(freshRules);
+      } catch {}
+    });
+
     return () => {
       unsubConn();
       unsubInit();
+      unsubInitMsgs();
       unsubTick();
       unsubBotMsg();
       unsubOrderOpened();
@@ -198,8 +257,9 @@ export const App: React.FC = () => {
       unsubRuleCreated();
       unsubRuleUpdated();
       unsubRuleDeleted();
+      unsubSignalsUpdated();
     };
-  }, [symbol]);
+  }, [symbol, timeframe, user?.id]);
 
   // User Actions
   const handleToggleBot = async () => {
@@ -220,7 +280,11 @@ export const App: React.FC = () => {
   };
 
   const handleSendMessage = (text: string) => {
-    wsClient.sendChat(text);
+    wsClient.sendChat(text, {
+      userId: user?.id,
+      symbol,
+      timeframe
+    });
   };
 
   const handleCloseOrder = (orderId: string) => {

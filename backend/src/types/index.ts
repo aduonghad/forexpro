@@ -5,6 +5,7 @@ export type OrderStatus = 'OPEN' | 'CLOSED' | 'CANCELLED';
 
 export interface Order {
   id: string;
+  userId?: string;
   ruleId?: string;
   ruleName?: string;
   symbol: TradingSymbol;
@@ -45,6 +46,9 @@ export interface SwingPoint {
 
 export interface AutomationRule {
   id: string;
+  userId?: string;
+  signalId?: string;
+  isDefaultRule?: boolean;
   name: string;
   symbol: TradingSymbol;
   timeframe: Timeframe;
@@ -69,6 +73,7 @@ export type BotMessageType = 'SIGNAL' | 'ORDER' | 'CLOSE' | 'ANALYSIS' | 'ALERT'
 
 export interface BotMessage {
   id: string;
+  userId?: string;
   type: BotMessageType;
   title: string;
   message: string;
@@ -229,6 +234,15 @@ export interface TelegramConfigStatus {
   botFirstName?: string;
 }
 
+export type UserPlan = 'free' | 'plus' | 'pro' | 'ultra';
+
+export const PLAN_SIGNAL_LIMITS: Record<UserPlan, number> = {
+  free: 1,
+  plus: 3,
+  pro: 10,
+  ultra: Infinity
+};
+
 export interface User {
   id: string;
   email: string;
@@ -238,6 +252,12 @@ export interface User {
   googleId?: string;
   authProvider: 'local' | 'google';
   role: 'user' | 'admin';
+  plan: UserPlan;
+  lastSymbol?: TradingSymbol;
+  lastTimeframe?: Timeframe;
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  telegramAlertsActive?: boolean;
   createdAt: number;
   updatedAt: number;
 }

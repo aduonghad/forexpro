@@ -65,6 +65,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           messages={messages}
           onSendMessage={onSendMessage}
           botActive={botActive}
+          symbol={symbol}
+          timeframe={timeframe}
         />
       </div>
     </div>

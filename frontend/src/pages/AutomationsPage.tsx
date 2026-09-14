@@ -3,7 +3,9 @@ import { AutomationRule } from '../types';
 import { RuleCard } from '../components/rules/RuleCard';
 import { RuleModal } from '../components/rules/RuleModal';
 import { TradingViewGuideModal } from '../components/rules/TradingViewGuideModal';
-import { Plus, Zap, Sliders, ShieldCheck, CheckCircle2, Search, Filter } from 'lucide-react';
+import { SignalSelectorModal } from '../components/rules/SignalSelectorModal';
+import { useAuth } from '../context/AuthContext';
+import { Plus, Zap, Sliders, ShieldCheck, CheckCircle2, Search, Filter, Sparkles, Award } from 'lucide-react';
 
 interface AutomationsPageProps {
   rules: AutomationRule[];
@@ -18,7 +20,9 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
   onSaveRule,
   onDeleteRule
 }) => {
+  const { userPlan, signalLimit } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSignalSelectorOpen, setIsSignalSelectorOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +43,14 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
     setIsModalOpen(true);
   };
 
+  const handleToggleWithQuota = (id: string, active: boolean) => {
+    if (active && activeRules >= signalLimit) {
+      alert(`Tài khoản gói ${userPlan.toUpperCase()} chỉ cho phép tối đa ${signalLimit === Infinity ? 'vô hạn' : signalLimit} tín hiệu kích hoạt đồng thời.\n\nVui lòng tắt bớt bot khác hoặc liên hệ Admin để nâng cấp gói tài khoản!`);
+      return;
+    }
+    onToggleRule(id, active);
+  };
+
   const handleDeleteWithConfirm = (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xoá yêu cầu tự động này?')) {
       onDeleteRule(id);
@@ -52,6 +64,8 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
     return matchesSearch && matchesSymbol;
   });
 
+  const isLimitReached = activeRules >= signalLimit;
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 space-y-6">
       {/* Top Banner: Metrics & Actions */}
@@ -62,15 +76,34 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-white">Quản Lý Yêu Cầu Tự Động (Automation Rules)</h2>
-              <p className="text-xs text-slate-400">
-                Cài đặt chiến lược thuật toán vào lệnh tự động trên sàn Exness
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-lg font-extrabold text-white">Quản Lý Yêu Cầu Tự Động (Automation Rules)</h2>
+                <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
+                  userPlan === 'ultra' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-purple-500/20 shadow-sm' :
+                  userPlan === 'pro' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-amber-500/20 shadow-sm' :
+                  userPlan === 'plus' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' :
+                  'bg-slate-800 text-slate-300 border-slate-700'
+                }`}>
+                  Gói {userPlan}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Cài đặt chiến lược thuật toán vào lệnh tự động trên sàn Exness từ kho tín hiệu
               </p>
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs">
+          {/* Quick Metrics Bar & Plan Quota */}
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+            <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${
+              isLimitReached ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-slate-900 border-slate-800'
+            }`}>
+              <Award className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-slate-400">Hạn mức tín hiệu:</span>
+              <span className={`font-mono font-bold ${isLimitReached ? 'text-amber-400' : 'text-cyan-300'}`}>
+                {activeRules}/{signalLimit === Infinity ? 'Không giới hạn' : signalLimit}
+              </span>
+            </div>
             <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800">
               <span className="text-slate-400 mr-2">Tổng số yêu cầu:</span>
               <span className="font-mono font-bold text-slate-100">{totalRules}</span>
@@ -84,7 +117,7 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
               <span className="font-mono font-bold text-cyan-300">{totalTrades}</span>
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800">
-              <span className="text-slate-400 mr-2">Lợi nhuận tích lũy:</span>
+              <span className="text-slate-400 mr-2">Lợi nhuận:</span>
               <span className={`font-mono font-bold ${totalProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)} USD
               </span>
@@ -93,21 +126,29 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <button
-            onClick={() => setIsGuideOpen(true)}
-            className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition shadow-md"
+            onClick={() => setIsSignalSelectorOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-amber-100 bg-gradient-to-r from-amber-600/40 to-orange-600/40 hover:from-amber-600/50 hover:to-orange-600/50 border border-amber-500/50 transition shadow-lg shadow-amber-500/20"
           >
-            <Zap className="w-4 h-4" />
-            <span>Webhook TradingView</span>
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>Tạo Yêu Cầu Tự Động Mới</span>
           </button>
 
           <button
             onClick={handleOpenAdd}
-            className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition shadow-lg shadow-cyan-500/25"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition shadow-lg shadow-cyan-500/25"
           >
             <Plus className="w-4 h-4" />
-            <span>Thêm Yêu Cầu Tự Động</span>
+            <span>Tạo Yêu Cầu Tùy Biến</span>
+          </button>
+
+          <button
+            onClick={() => setIsGuideOpen(true)}
+            className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition shadow-md"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Webhook TradingView</span>
           </button>
         </div>
       </div>
@@ -165,7 +206,7 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
             <RuleCard
               key={rule.id}
               rule={rule}
-              onToggle={onToggleRule}
+              onToggle={handleToggleWithQuota}
               onEdit={handleOpenEdit}
               onDelete={handleDeleteWithConfirm}
             />
@@ -185,6 +226,15 @@ export const AutomationsPage: React.FC<AutomationsPageProps> = ({
           }
         }}
         initialRule={editingRule}
+      />
+
+      <SignalSelectorModal
+        isOpen={isSignalSelectorOpen}
+        onClose={() => setIsSignalSelectorOpen(false)}
+        onSelectSignal={(ruleData) => onSaveRule(ruleData)}
+        activeCount={activeRules}
+        maxLimit={signalLimit}
+        userPlan={userPlan}
       />
 
       <TradingViewGuideModal

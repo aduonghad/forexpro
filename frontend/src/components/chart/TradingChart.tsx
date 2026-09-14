@@ -11,9 +11,7 @@ import {
 } from 'lightweight-charts';
 import { TradingSymbol, Timeframe, Candle, Order, IndicatorSnapshot, IndicatorConfig } from '../../types';
 import { api } from '../../services/api';
-import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock, Sparkles, ChevronRight, Info } from 'lucide-react';
-import { analyzeClosedCandle } from '../../utils/candleClassifier';
-import { ClosedCandleDetailModal } from './ClosedCandleDetailModal';
+import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock, Info } from 'lucide-react';
 
 class CountdownPriceAxisView implements ISeriesPrimitiveAxisView {
   _coordinate: number = -10000;
@@ -383,13 +381,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   const [currentSwingTrend, setCurrentSwingTrend] = useState<'UP' | 'DOWN'>('UP');
   const [candleTimeLeft, setCandleTimeLeft] = useState<string>('00:00');
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-  // Analyze latest closed candle for current symbol and selected timeframe
-  const closedAnalysis = useMemo(
-    () => analyzeClosedCandle(candles, symbol, timeframe),
-    [candles, symbol, timeframe]
-  );
 
   // Update countdown on price scale
   useEffect(() => {
@@ -1177,64 +1168,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         </div>
       </div>
 
-      {/* Closed Candle Analysis Banner */}
-      {closedAnalysis && (
-        <div className="px-3.5 py-2 bg-gradient-to-r from-slate-900/95 via-slate-900/90 to-slate-950 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5 text-xs shadow-inner">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Timeframe & Closed status badge */}
-            <div className="flex items-center gap-1 bg-slate-800/90 border border-slate-700/60 px-2 py-0.5 rounded-md font-mono text-[11px] text-slate-300 shadow-sm">
-              <Clock className="w-3 h-3 text-cyan-400" />
-              <span>Đóng Nến [{timeframe}]</span>
-            </div>
-
-            {/* Pattern Badge */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold text-xs shadow-sm border ${
-                closedAnalysis.patternType === 'BULLISH'
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-emerald-500/10'
-                  : closedAnalysis.patternType === 'BEARISH'
-                  ? 'bg-rose-500/15 text-rose-400 border-rose-500/30 shadow-rose-500/10'
-                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30 shadow-amber-500/10'
-              }`}
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>{closedAnalysis.patternName}</span>
-              <span className="text-[10px] opacity-75 font-normal">
-                ({closedAnalysis.metrics.direction === 'BULLISH' ? 'Nến Tăng' : closedAnalysis.metrics.direction === 'BEARISH' ? 'Nến Giảm' : 'Doji'})
-              </span>
-            </div>
-
-            {/* Quick Metrics Chips */}
-            <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-              <span className="bg-slate-950/70 px-2 py-0.5 rounded border border-slate-800">
-                Thân: <strong className={closedAnalysis.metrics.direction === 'BULLISH' ? 'text-emerald-400' : 'text-rose-400'}>{closedAnalysis.metrics.bodyPips} pips</strong> ({closedAnalysis.metrics.bodyPercent}%)
-              </span>
-              <span className="bg-slate-950/70 px-2 py-0.5 rounded border border-slate-800">
-                Râu Dưới: <strong className="text-slate-300">{closedAnalysis.metrics.lowerWickPips} pips</strong>
-              </span>
-              <span className="bg-slate-950/70 px-2 py-0.5 rounded border border-slate-800">
-                Râu Trên: <strong className="text-slate-300">{closedAnalysis.metrics.upperWickPips} pips</strong>
-              </span>
-            </div>
-
-            {/* Short description */}
-            <span className="text-slate-300 text-[11px] italic hidden xl:inline max-w-[320px] truncate">
-              "{closedAnalysis.sentiment}"
-            </span>
-          </div>
-
-          {/* Action button to open detailed visual modal */}
-          <button
-            onClick={() => setIsDetailModalOpen(true)}
-            id="view-closed-candle-detail-btn"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 hover:border-cyan-500/50 text-cyan-300 text-xs font-semibold transition-all shadow-sm hover:shadow-cyan-500/20 active:scale-95 ml-auto cursor-pointer"
-          >
-            <span>Chi Tiết Nến</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Main Candlestick Chart Canvas */}
       <div className="relative w-full h-[380px]" ref={chartContainerRef} />
 
@@ -1267,13 +1200,6 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <div className="w-full h-[120px]" ref={macdContainerRef} />
         </div>
       )}
-
-      {/* Interactive Closed Candle Detail Modal */}
-      <ClosedCandleDetailModal
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        analysis={closedAnalysis}
-      />
     </div>
   );
 };
