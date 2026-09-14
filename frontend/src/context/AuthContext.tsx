@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Computed plan properties
   const userPlan: UserPlan = user?.plan || 'free';
-  const isProOrUltra = userPlan === 'pro' || userPlan === 'ultra';
+  const isProOrUltra = userPlan === 'pro' || userPlan === 'ultra' || user?.role === 'admin';
   const signalLimit = PLAN_SIGNAL_LIMITS[userPlan] || 1;
 
   // Load Google Auth Config & verify existing token

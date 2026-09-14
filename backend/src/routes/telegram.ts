@@ -94,13 +94,31 @@ router.post('/credentials', async (req: Request, res: Response) => {
   try {
     const { botToken, chatId } = req.body;
     if (!botToken || !chatId) {
-      return res.status(400).json({ success: false, error: 'Vui lòng cung cấp đầy đủ botToken và chatId' });
+      return res.status(400).json({ success: false, error: 'Vui lòng cung cấp đầy đủ Bot Token và Chat ID' });
     }
 
-    await telegramService.setCredentials(String(botToken), String(chatId));
+    const trimmedToken = String(botToken).trim();
+    const trimmedChatId = String(chatId).trim();
+
+    // Verify token validity with Telegram API
+    try {
+      const checkRes = await fetch(`https://api.telegram.org/bot${trimmedToken}/getMe`);
+      const checkData = await checkRes.json() as any;
+      if (!checkData.ok) {
+        return res.status(400).json({
+          success: false,
+          error: `Telegram Bot Token không hợp lệ: ${checkData.description || 'Xác thực thất bại (Unauthorized)'}`
+        });
+      }
+    } catch (netErr: any) {
+      // If external network is temporarily unreachable, proceed with warning log
+      console.warn('Không thể kiểm tra bot token qua Telegram API:', netErr.message);
+    }
+
+    await telegramService.setCredentials(trimmedToken, trimmedChatId);
     res.json({ success: true, message: 'Đã cập nhật thông tin Telegram Bot thành công!' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message || 'Lỗi cập nhật thông tin Telegram' });
   }
 });
 
@@ -120,7 +138,7 @@ router.get('/user-status', authenticateToken, async (req: AuthenticatedRequest, 
       return;
     }
 
-    const isEligible = user.plan === 'pro' || user.plan === 'ultra';
+    const isEligible = user.plan === 'pro' || user.plan === 'ultra' || user.role === 'admin';
     const token = user.telegramBotToken || '';
     const chatId = user.telegramChatId || '';
 
@@ -167,17 +185,35 @@ router.put('/user-config', authenticateToken, async (req: AuthenticatedRequest, 
       return;
     }
 
-    if (user.plan !== 'pro' && user.plan !== 'ultra') {
+    if (user.plan !== 'pro' && user.plan !== 'ultra' && user.role !== 'admin') {
       res.status(403).json({
         success: false,
-        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành riêng cho tài khoản gói PRO và ULTRA. Vui lòng nâng cấp gói để sử dụng!'
+        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành cho tài khoản gói PRO và ULTRA (hoặc Admin). Vui lòng nâng cấp gói để sử dụng!'
       });
       return;
     }
 
     const { botToken, chatId, notificationsEnabled } = req.body;
     const updates: any = {};
-    if (botToken !== undefined) updates.telegramBotToken = String(botToken).trim();
+    if (botToken !== undefined) {
+      const trimmedToken = String(botToken).trim();
+      if (trimmedToken) {
+        // Validate token if provided
+        try {
+          const checkRes = await fetch(`https://api.telegram.org/bot${trimmedToken}/getMe`);
+          const checkData = await checkRes.json() as any;
+          if (!checkData.ok) {
+            return res.status(400).json({
+              success: false,
+              error: `Telegram Bot Token không hợp lệ: ${checkData.description || 'Xác thực thất bại (Unauthorized)'}`
+            });
+          }
+        } catch (netErr: any) {
+          console.warn('Không thể kiểm tra bot token qua Telegram API:', netErr.message);
+        }
+      }
+      updates.telegramBotToken = trimmedToken;
+    }
     if (chatId !== undefined) updates.telegramChatId = String(chatId).trim();
     if (notificationsEnabled !== undefined) updates.telegramAlertsActive = Boolean(notificationsEnabled);
 
@@ -188,7 +224,7 @@ router.put('/user-config', authenticateToken, async (req: AuthenticatedRequest, 
       message: 'Đã cập nhật cấu hình Telegram riêng thành công!'
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message || 'Lỗi cập nhật cấu hình Telegram' });
   }
 });
 
@@ -206,10 +242,10 @@ router.post('/user-test', authenticateToken, async (req: AuthenticatedRequest, r
       return;
     }
 
-    if (user.plan !== 'pro' && user.plan !== 'ultra') {
+    if (user.plan !== 'pro' && user.plan !== 'ultra' && user.role !== 'admin') {
       res.status(403).json({
         success: false,
-        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành riêng cho tài khoản gói PRO và ULTRA.'
+        error: 'Tính năng liên kết Bot Telegram riêng chỉ dành cho tài khoản gói PRO và ULTRA (hoặc Admin).'
       });
       return;
     }

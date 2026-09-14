@@ -18,6 +18,7 @@ export class BotEngineService extends EventEmitter {
   private analysisTimer: NodeJS.Timeout | null = null;
   private lastTriggerTimes: Map<string, number> = new Map(); // ruleId -> timestamp
   private lastNotifiedSwings: Map<string, { type: 'HIGH' | 'LOW'; time: number; price: number }> = new Map();
+  private lastTelegramAnalysisTimes: Map<string, number> = new Map();
 
   constructor() {
     super();
@@ -45,7 +46,9 @@ export class BotEngineService extends EventEmitter {
         try {
           const { telegramService } = await import('./telegramService.js');
           await telegramService.sendNotificationToUser(order.userId, msg.title, msg.message);
-        } catch {}
+        } catch (err: any) {
+          console.error('Lỗi gửi thông báo đóng lệnh tới Telegram:', err.message);
+        }
       }
     });
 
@@ -190,13 +193,26 @@ export class BotEngineService extends EventEmitter {
   private async checkDynamicSwings() {
     if (!this.swingAlertsActive) return;
 
-    // Chỉ phân tích và gửi tín hiệu swing khi có người dùng đã đăng nhập đang xem biểu đồ
     let activeViewers: string[] = [];
     try {
       const { wsHub } = await import('../websocket/wsHub.js');
       activeViewers = wsHub.getActiveViewers(this.activeSymbol, this.activeTimeframe);
     } catch {}
-    if (activeViewers.length === 0) return;
+
+    let telegramUsers: string[] = [];
+    try {
+      const { UserModel } = await import('../db/schemas.js');
+      const tUsers = await UserModel.find({
+        telegramBotToken: { $exists: true, $ne: '' },
+        telegramChatId: { $exists: true, $ne: '' },
+        telegramAlertsActive: { $ne: false },
+        $or: [{ plan: 'pro' }, { plan: 'ultra' }, { role: 'admin' }]
+      }).select('id').lean();
+      telegramUsers = tUsers.map((u: any) => u.id).filter(Boolean);
+    } catch {}
+
+    const targetUsers = Array.from(new Set([...activeViewers, ...telegramUsers]));
+    if (targetUsers.length === 0) return;
 
     // Only scan dynamic swings for the currently selected active symbol & timeframe
     const symbols: TradingSymbol[] = [this.activeSymbol];
@@ -246,7 +262,7 @@ export class BotEngineService extends EventEmitter {
 
         const title = isPeak
           ? `🔻 Xác Nhận ĐỈNH: ${symbol} (${tf})`
-          : `🔺 Xác Nhận ĐÁY: ${symbol} (${tf})`;
+          : `🟢 Xác Nhận ĐÁY: ${symbol} (${tf})`;
 
         const transitionText = isPeak
           ? `📉 Đảo chiều sang nhịp GIẢM (Tìm Đáy mới)`
@@ -264,7 +280,7 @@ export class BotEngineService extends EventEmitter {
 • RSI(14): ${snapshot.rsi14} (${rsiStatus})
 • Thời gian chốt đáy: ${timeStr}`;
 
-        for (const uid of activeViewers) {
+        for (const uid of targetUsers) {
           const botMsg: BotMessage = {
             id: uuidv4(),
             userId: uid,
@@ -285,6 +301,17 @@ export class BotEngineService extends EventEmitter {
 
           db.addBotMessage(botMsg).catch(err => console.error('Lỗi lưu swing alert:', err.message));
           this.emit('botMessage', botMsg);
+
+          // Gửi tín hiệu Swing tới Telegram người dùng
+          if (this.swingAlertsActive) {
+            try {
+              import('./telegramService.js').then(({ telegramService }) => {
+                telegramService.sendNotificationToUser(uid, title, message).catch(err => {
+                  console.warn(`Lỗi gửi Telegram Swing tới user ${uid}:`, err.message);
+                });
+              }).catch(() => {});
+            } catch {}
+          }
         }
       }
     }
@@ -307,7 +334,7 @@ export class BotEngineService extends EventEmitter {
 
     // Send technical analysis insight every 60 seconds
     this.analysisTimer = setInterval(() => {
-      if (!this.isRunning) return;
+      if (!this.analysisAlertsActive) return;
       this.generatePeriodicAnalysis();
     }, 60000);
   }
@@ -418,6 +445,7 @@ export class BotEngineService extends EventEmitter {
 
   private async executeTradeForRule(rule: AutomationRule, reason: string, triggerPrice: number) {
     const order = await mt5Bridge.openOrder({
+      userId: rule.userId,
       symbol: rule.symbol,
       type: rule.action,
       lot: rule.lot,
@@ -452,7 +480,9 @@ export class BotEngineService extends EventEmitter {
       try {
         const { telegramService } = await import('./telegramService.js');
         await telegramService.sendNotificationToUser(rule.userId, msg.title, msg.message);
-      } catch {}
+      } catch (err: any) {
+        console.error('Lỗi gửi thông báo Telegram khi vào lệnh:', err.message);
+      }
     }
   }
 
@@ -773,13 +803,26 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
     let prefUsers: string[] = [];
     try {
       const { UserModel } = await import('../db/schemas.js');
-      const users = await UserModel.find({ lastSymbol: symbol, lastTimeframe: timeframe }).select('id').lean();
+      const users = await UserModel.find({ lastSymbol: symbol }).select('id').lean();
       prefUsers = users.map((u: any) => u.id).filter(Boolean);
     } catch {}
 
-    const targetUserIds = Array.from(new Set([...activeViewers, ...prefUsers]));
+    // 3. Identify users who configured Telegram alerts
+    let telegramUsers: string[] = [];
+    try {
+      const { UserModel } = await import('../db/schemas.js');
+      const tUsers = await UserModel.find({
+        telegramBotToken: { $exists: true, $ne: '' },
+        telegramChatId: { $exists: true, $ne: '' },
+        telegramAlertsActive: { $ne: false },
+        $or: [{ plan: 'pro' }, { plan: 'ultra' }, { role: 'admin' }]
+      }).select('id').lean();
+      telegramUsers = tUsers.map((u: any) => u.id).filter(Boolean);
+    } catch {}
 
-    // Chỉ gửi phân tích nến đóng khi có người dùng đã đăng nhập đang xem hoặc chọn cặp này
+    const targetUserIds = Array.from(new Set([...activeViewers, ...prefUsers, ...telegramUsers]));
+
+    // Chỉ gửi phân tích nến đóng khi có người xem hoặc người dùng cấu hình Telegram
     if (targetUserIds.length === 0) return;
 
     const snapshot = marketData.getIndicators(symbol, timeframe);
@@ -835,6 +878,22 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
       };
       db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
       this.emit('botMessage', msg);
+
+      // Gửi phân tích nến qua Telegram tới người dùng
+      if (this.analysisAlertsActive) {
+        const userLastSent = this.lastTelegramAnalysisTimes.get(`${uid}_${symbol}`) || 0;
+        const hasPattern = !!candleAnalysis;
+        if (hasPattern || Date.now() - userLastSent >= 60000) {
+          this.lastTelegramAnalysisTimes.set(`${uid}_${symbol}`, Date.now());
+          try {
+            import('./telegramService.js').then(({ telegramService }) => {
+              telegramService.sendNotificationToUser(uid, title, messageText).catch(err => {
+                console.warn(`Lỗi gửi Telegram phân tích nến cho user ${uid}:`, err.message);
+              });
+            }).catch(() => {});
+          } catch {}
+        }
+      }
     }
   }
 
@@ -844,14 +903,26 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
     const symbol = targetSymbol || this.activeSymbol;
     const timeframe = targetTimeframe || this.activeTimeframe;
 
-    // Chỉ gửi phân tích định kỳ khi có người dùng đã đăng nhập đang xem biểu đồ
     let activeViewers: string[] = [];
     try {
       const { wsHub } = await import('../websocket/wsHub.js');
       activeViewers = wsHub.getActiveViewers(symbol, timeframe);
     } catch {}
 
-    if (activeViewers.length === 0) return;
+    let telegramUsers: string[] = [];
+    try {
+      const { UserModel } = await import('../db/schemas.js');
+      const tUsers = await UserModel.find({
+        telegramBotToken: { $exists: true, $ne: '' },
+        telegramChatId: { $exists: true, $ne: '' },
+        telegramAlertsActive: { $ne: false },
+        $or: [{ plan: 'pro' }, { plan: 'ultra' }, { role: 'admin' }]
+      }).select('id').lean();
+      telegramUsers = tUsers.map((u: any) => u.id).filter(Boolean);
+    } catch {}
+
+    const targetUserIds = Array.from(new Set([...activeViewers, ...telegramUsers]));
+    if (targetUserIds.length === 0) return;
 
     const snapshot = marketData.getIndicators(symbol, timeframe);
     const price = marketData.getCurrentPrice(symbol);
@@ -888,7 +959,7 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
 
     const titleSuffix = candleAnalysis ? ` - ${candleAnalysis.patternName}` : '';
 
-    for (const uid of activeViewers) {
+    for (const uid of targetUserIds) {
       const msg: BotMessage = {
         id: uuidv4(),
         userId: uid,
@@ -906,6 +977,19 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
 
       db.addBotMessage(msg).catch(err => console.error('Lỗi lưu analysis message:', err.message));
       this.emit('botMessage', msg);
+
+      // Gửi phân tích định kỳ tới Telegram
+      if (this.analysisAlertsActive) {
+        const userLastSent = this.lastTelegramAnalysisTimes.get(`${uid}_${symbol}`) || 0;
+        if (Date.now() - userLastSent >= 60000) {
+          this.lastTelegramAnalysisTimes.set(`${uid}_${symbol}`, Date.now());
+          try {
+            import('./telegramService.js').then(({ telegramService }) => {
+              telegramService.sendNotificationToUser(uid, msg.title, msg.message).catch(() => {});
+            }).catch(() => {});
+          } catch {}
+        }
+      }
     }
   }
 

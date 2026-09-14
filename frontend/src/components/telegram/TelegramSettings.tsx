@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { Send, Bell, BellOff, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw, Key, MessageSquare, ExternalLink, Bot } from 'lucide-react';
+import { Send, Bell, BellOff, ShieldCheck, CheckCircle2, AlertCircle, RefreshCw, Key, MessageSquare, ExternalLink, Bot, X } from 'lucide-react';
 
 export const TelegramSettings: React.FC = () => {
   const [status, setStatus] = useState<{
@@ -16,6 +16,7 @@ export const TelegramSettings: React.FC = () => {
   const [isToggling, setIsToggling] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Edit credentials state
   const [isEditing, setIsEditing] = useState(false);
@@ -51,12 +52,20 @@ export const TelegramSettings: React.FC = () => {
 
   const handleToggle = async () => {
     setIsToggling(true);
+    setSaveResult(null);
     try {
       const nextState = !status?.notificationsEnabled;
       const res = await api.toggleTelegramAlerts(nextState);
       setStatus(prev => prev ? { ...prev, notificationsEnabled: res.notificationsEnabled } : null);
+      setSaveResult({
+        type: 'success',
+        message: res.message || (nextState ? 'Đã BẬT thông báo Telegram hệ thống' : 'Đã TẮT thông báo Telegram hệ thống')
+      });
     } catch (err: any) {
-      alert('Lỗi khi bật/tắt thông báo: ' + (err?.message || err));
+      setSaveResult({
+        type: 'error',
+        message: 'Lỗi khi bật/tắt thông báo: ' + (err?.response?.data?.error || err?.message || err)
+      });
     } finally {
       setIsToggling(false);
     }
@@ -67,7 +76,7 @@ export const TelegramSettings: React.FC = () => {
     setTestResult(null);
     try {
       const res = await api.sendTelegramTest();
-      setTestResult({ type: 'success', message: res.message });
+      setTestResult({ type: 'success', message: res.message || 'Đã gửi tin nhắn thử nghiệm thành công' });
     } catch (err: any) {
       setTestResult({
         type: 'error',
@@ -81,17 +90,25 @@ export const TelegramSettings: React.FC = () => {
   const handleSaveCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customToken.trim() || !customChatId.trim()) {
-      alert('Vui lòng điền đầy đủ Bot Token và Chat ID');
+      setSaveResult({ type: 'error', message: 'Vui lòng điền đầy đủ Bot Token và Chat ID' });
       return;
     }
     setIsSavingCreds(true);
+    setSaveResult(null);
     try {
-      await api.saveTelegramCredentials(customToken.trim(), customChatId.trim());
+      const res = await api.saveTelegramCredentials(customToken.trim(), customChatId.trim());
       setIsEditing(false);
+      setCustomToken('');
       await loadStatus();
-      alert('Đã cập nhật thông tin Telegram Bot thành công!');
+      setSaveResult({
+        type: 'success',
+        message: res.message || 'Đã cập nhật thông tin Telegram Bot thành công!'
+      });
     } catch (err: any) {
-      alert('Lỗi lưu thông tin: ' + (err?.message || err));
+      setSaveResult({
+        type: 'error',
+        message: err?.response?.data?.error || err?.message || 'Lỗi lưu thông tin Telegram'
+      });
     } finally {
       setIsSavingCreds(false);
     }
@@ -169,12 +186,41 @@ export const TelegramSettings: React.FC = () => {
               Thông Tin Bot Telegram Kết Nối
             </h3>
             <button
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                setIsEditing(!isEditing);
+                setSaveResult(null);
+              }}
               className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold transition"
             >
               {isEditing ? 'Hủy sửa' : 'Thay đổi Token / Chat ID'}
             </button>
           </div>
+
+          {/* Save feedback banner */}
+          {saveResult && (
+            <div className={`p-3.5 rounded-xl text-xs flex items-center justify-between gap-2.5 border transition-all shadow-md ${
+              saveResult.type === 'success'
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10'
+                : 'bg-rose-500/15 border-rose-500/40 text-rose-300 shadow-rose-500/10'
+            }`}>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                {saveResult.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                )}
+                <span className="font-medium break-words">{saveResult.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaveResult(null)}
+                className="p-1 rounded text-slate-400 hover:text-white transition shrink-0"
+                title="Đóng thông báo"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {!isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
@@ -275,17 +321,27 @@ export const TelegramSettings: React.FC = () => {
 
           {/* Test feedback banner */}
           {testResult && (
-            <div className={`p-3 rounded-xl text-xs flex items-center gap-2.5 border ${
+            <div className={`p-3.5 rounded-xl text-xs flex items-center justify-between gap-2.5 border transition-all shadow-md ${
               testResult.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10'
+                : 'bg-rose-500/15 border-rose-500/40 text-rose-300 shadow-rose-500/10'
             }`}>
-              {testResult.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              )}
-              <span>{testResult.message}</span>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                {testResult.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                )}
+                <span className="font-medium break-words">{testResult.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTestResult(null)}
+                className="p-1 rounded text-slate-400 hover:text-white transition shrink-0"
+                title="Đóng thông báo"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ import { UsersRoadmap } from '../components/management/UsersRoadmap';
 import { ModulesRoadmap } from '../components/management/ModulesRoadmap';
 import { IndicatorsManagement } from '../components/indicators/IndicatorsManagement';
 import { SignalsManagement } from '../components/signals/SignalsManagement';
+import { TelegramSettings } from '../components/telegram/TelegramSettings';
 import { 
   Sliders, 
   Users, 
@@ -23,7 +24,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  X
+  X,
+  Send
 } from 'lucide-react';
 
 interface ManagementPageProps {
@@ -31,7 +33,7 @@ interface ManagementPageProps {
   onLogoutAdmin?: () => void;
 }
 
-type AdminSection = 'signals' | 'patterns' | 'indicators' | 'users' | 'modules';
+type AdminSection = 'signals' | 'patterns' | 'indicators' | 'telegram' | 'users' | 'modules';
 
 export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading, onLogoutAdmin }) => {
   const [activeSection, setActiveSection] = useState<AdminSection>('signals');
@@ -170,6 +172,14 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
       groupTitle: 'HỆ THỐNG & NGƯỜI DÙNG',
       items: [
         {
+          id: 'telegram' as AdminSection,
+          label: 'Cấu Hình Telegram',
+          subtitle: 'Kênh thông báo & Bot Token',
+          icon: Send,
+          badge: 'Bot Alert',
+          badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+        },
+        {
           id: 'users' as AdminSection,
           label: 'Quản Trị Người Dùng',
           subtitle: 'Phân quyền & gói cước Pro/Ultra',
@@ -208,6 +218,12 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
           title: 'Tham Số Chỉ Báo Kỹ Thuật (Indicators Parameters)',
           description: 'Hiệu chỉnh các ngưỡng RSI (Quá Mua / Quá Bán), chu kỳ EMA ngắn/dài, độ lệch chuẩn Bollinger Bands và chỉ báo MACD.',
           icon: Activity
+        };
+      case 'telegram':
+        return {
+          title: 'Cấu Hình Thông Báo Telegram Hệ Thống',
+          description: 'Quản lý Telegram Bot Token, Chat ID, kiểm tra kết nối và tùy chỉnh các loại cảnh báo tự động gửi về Telegram.',
+          icon: Send
         };
       case 'users':
         return {
@@ -591,10 +607,13 @@ export const ManagementPage: React.FC<ManagementPageProps> = ({ onBackToTrading,
           {/* SECTION 3: PURE TECHNICAL INDICATORS */}
           {activeSection === 'indicators' && <IndicatorsManagement />}
 
-          {/* SECTION 4: USERS & ROLES ROADMAP */}
+          {/* SECTION 4: TELEGRAM SYSTEM BOT SETTINGS */}
+          {activeSection === 'telegram' && <TelegramSettings />}
+
+          {/* SECTION 5: USERS & ROLES ROADMAP */}
           {activeSection === 'users' && <UsersRoadmap />}
 
-          {/* SECTION 5: SYSTEM MODULES ROADMAP */}
+          {/* SECTION 6: SYSTEM MODULES ROADMAP */}
           {activeSection === 'modules' && <ModulesRoadmap />}
         </div>
       </main>

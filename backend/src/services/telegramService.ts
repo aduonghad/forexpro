@@ -218,7 +218,7 @@ Bạn có thể gõ các câu lệnh sau trực tiếp trên Telegram:
       const url = `https://api.telegram.org/bot${user.telegramBotToken.trim()}/sendMessage`;
       const text = `🤖 *${title}*\n\n${message}`;
 
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +229,22 @@ Bạn có thể gõ các câu lệnh sau trực tiếp trên Telegram:
         })
       });
 
-      const resData = await res.json() as any;
+      let resData = await res.json() as any;
+      if (!resData.ok) {
+        console.warn(`⚠️ Gửi Telegram Markdown thất bại (${resData.description}). Đang thử lại dạng văn bản thuần...`);
+        // Fallback: send as plain text without Markdown parse_mode
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: user.telegramChatId.trim(),
+            text: `🤖 ${title}\n\n${message}`,
+            disable_web_page_preview: true
+          })
+        });
+        resData = await res.json() as any;
+      }
+
       if (!resData.ok) {
         console.warn(`⚠️ Gửi Telegram thất bại tới user ${userId}:`, resData.description);
         return false;

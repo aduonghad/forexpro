@@ -26,13 +26,14 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
     }
   }, [isOpen, isProOrUltra]);
 
-  const loadConfig = async () => {
+  const loadConfig = async (preserveFeedback = false) => {
     setLoading(true);
-    setFeedback(null);
+    if (!preserveFeedback) {
+      setFeedback(null);
+    }
     try {
       const data = await api.getUserTelegramStatus();
       setStatusData(data);
-      if (data.chatId) setChatId(data.chatId);
       setNotificationsEnabled(data.notificationsEnabled !== false);
     } catch (err: any) {
       console.warn('Lỗi tải cấu hình Telegram cá nhân:', err);
@@ -47,12 +48,14 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
     setFeedback(null);
     try {
       const res = await api.saveUserTelegramConfig({
-        botToken: token || undefined,
-        chatId: chatId || undefined,
+        botToken: token ? token.trim() : undefined,
+        chatId: chatId ? chatId.trim() : undefined,
         notificationsEnabled
       });
       setFeedback({ type: 'success', message: res.message || 'Đã lưu cấu hình Telegram cá nhân thành công!' });
-      await loadConfig();
+      setToken('');
+      setChatId('');
+      await loadConfig(true);
     } catch (err: any) {
       setFeedback({
         type: 'error',
@@ -68,8 +71,8 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
     setFeedback(null);
     try {
       const res = await api.sendUserTelegramTest({
-        botToken: token || undefined,
-        chatId: chatId || undefined
+        botToken: token ? token.trim() : undefined,
+        chatId: chatId ? chatId.trim() : undefined
       });
       setFeedback({ type: 'success', message: res.message || 'Đã gửi tin nhắn thử nghiệm thành công!' });
     } catch (err: any) {
@@ -153,17 +156,27 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
             /* Config Form for Pro & Ultra */
             <form onSubmit={handleSave} className="space-y-4">
               {feedback && (
-                <div className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 ${
+                <div className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-2.5 transition-all shadow-lg ${
                   feedback.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-300 shadow-rose-500/10'
                 }`}>
-                  {feedback.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                  )}
-                  <span>{feedback.message}</span>
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    {feedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    )}
+                    <span className="font-medium break-words">{feedback.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFeedback(null)}
+                    className="p-1 rounded text-slate-400 hover:text-white transition shrink-0"
+                    title="Đóng thông báo"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )}
 
@@ -193,7 +206,7 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
                   type="text"
                   value={chatId}
                   onChange={(e) => setChatId(e.target.value)}
-                  placeholder="Ví dụ: 123456789 hoặc -1001234567890"
+                  placeholder={statusData?.chatId ? `Đã lưu (${statusData.chatId}) - Nhập mới để đổi` : 'Ví dụ: 123456789 hoặc -1001234567890'}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
                 />
                 <p className="text-[10px] text-slate-400">
@@ -223,7 +236,7 @@ export const UserTelegramModal: React.FC<UserTelegramModalProps> = ({ isOpen, on
                 <button
                   type="button"
                   onClick={handleTest}
-                  disabled={testing || (!token && !statusData?.botTokenConfigured)}
+                  disabled={testing || (!token && !statusData?.botTokenConfigured) || (!chatId && !statusData?.chatId)}
                   className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5 text-cyan-400" />
