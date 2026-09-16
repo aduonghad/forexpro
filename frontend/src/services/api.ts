@@ -73,6 +73,19 @@ export const api = {
     );
     return res.data.data;
   },
+  getMT5Status: async () => {
+    const res = await axios.get<{
+      success: boolean;
+      data: {
+        connected: boolean;
+        lastTickTime: number;
+        source: string;
+        activeSymbols: string[];
+        secondsSinceLastTick: number;
+      };
+    }>(`${API_BASE}/mt5/status`);
+    return res.data.data;
+  },
 
   // Bot & Chat
   getBotMessages: async (limit: number = 100) => {

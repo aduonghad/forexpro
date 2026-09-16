@@ -11,7 +11,8 @@ import {
 } from 'lightweight-charts';
 import { TradingSymbol, Timeframe, Candle, Order, IndicatorSnapshot, IndicatorConfig } from '../../types';
 import { api } from '../../services/api';
-import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock, Info } from 'lucide-react';
+import { Eye, EyeOff, TrendingUp, TrendingDown, Layers, Clock, Info, Zap } from 'lucide-react';
+import { MT5ConnectModal } from './MT5ConnectModal';
 
 class CountdownPriceAxisView implements ISeriesPrimitiveAxisView {
   _coordinate: number = -10000;
@@ -381,6 +382,29 @@ export const TradingChart: React.FC<TradingChartProps> = ({
 
   const [currentSwingTrend, setCurrentSwingTrend] = useState<'UP' | 'DOWN'>('UP');
   const [candleTimeLeft, setCandleTimeLeft] = useState<string>('00:00');
+
+  // MT5 Bridge Status & Modal
+  const [isMT5ModalOpen, setIsMT5ModalOpen] = useState(false);
+  const [mt5Status, setMt5Status] = useState<{
+    connected: boolean;
+    source: string;
+    secondsSinceLastTick: number;
+  }>({
+    connected: false,
+    source: 'SIMULATED',
+    secondsSinceLastTick: -1
+  });
+
+  useEffect(() => {
+    const fetchStatus = () => {
+      api.getMT5Status().then(status => {
+        if (status) setMt5Status(status);
+      }).catch(() => {});
+    };
+    fetchStatus();
+    const timer = setInterval(fetchStatus, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Update countdown on price scale
   useEffect(() => {
@@ -1061,6 +1085,34 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           ))}
         </div>
 
+        {/* MT5 Bridge Status Button */}
+        <button
+          onClick={() => setIsMT5ModalOpen(true)}
+          title="Nhấn để xem trạng thái và hướng dẫn kết nối dữ liệu từ MT5 Exness"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all ${
+            mt5Status.connected
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25 shadow-sm shadow-emerald-500/20'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+          }`}
+        >
+          <span className="relative flex h-2 w-2">
+            <span
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                mt5Status.connected ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                mt5Status.connected ? 'bg-emerald-500' : 'bg-amber-500'
+              }`}
+            />
+          </span>
+          <Zap className={`w-3 h-3 ${mt5Status.connected ? 'text-emerald-400' : 'text-amber-400'}`} />
+          <span className="whitespace-nowrap">
+            {mt5Status.connected ? 'MT5 Live (Exness)' : 'Chờ MT5 EA'}
+          </span>
+        </button>
+
         {/* Indicator Toggles (Cập nhật tự động theo Trang Quản Lý) */}
         <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto scrollbar-none">
           <Layers className="w-3.5 h-3.5 text-cyan-400 mr-0.5 shrink-0" />
@@ -1200,6 +1252,14 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <div className="w-full h-[120px]" ref={macdContainerRef} />
         </div>
       )}
+
+      {/* Modal Hướng Dẫn Kết Nối MT5 Exness */}
+      <MT5ConnectModal
+        isOpen={isMT5ModalOpen}
+        onClose={() => setIsMT5ModalOpen(false)}
+        isMT5Connected={mt5Status.connected}
+        secondsSinceLastTick={mt5Status.secondsSinceLastTick}
+      />
     </div>
   );
 };

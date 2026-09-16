@@ -12,7 +12,8 @@
     "verify": "npm run check:env && npm run build",
     "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
     "start": "concurrently -n backend,frontend -c blue,magenta \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "start:bash": "bash start.sh"
+    "start:bash": "bash start.sh",
+    "copy-ea:mac": "cp scripts/mt5/ForexPro_MT5_Bridge.mq5 \"$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Experts/\" && echo '✅ Đã sao chép EA vào MT5 Experts trên Mac!'"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"

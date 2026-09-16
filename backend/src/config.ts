@@ -43,7 +43,7 @@ export const CONFIG = {
       pipValuePerLot: 10.0, // 100 oz contract
       digits: 2,
       baseSpread: 0.12,
-      initialPrice: 2364.50,
+      initialPrice: 4325.0,
       volatility: 0.8,
     },
     EURUSD: {
