@@ -76,7 +76,6 @@ export class WebSocketHub {
 
     // Broadcast market ticks with user-isolated openOrders and account metrics
     marketData.on('tick', (tick: TickData) => {
-      const snap = marketData.getIndicators(tick.symbol, 'M1');
       const allOpenOrders = mt5Bridge.getOpenOrders();
 
       this.clients.forEach(client => {
@@ -88,11 +87,15 @@ export class WebSocketHub {
             : [];
           const userAccount = mt5Bridge.getAccountInfo(meta?.userId);
 
+          // Tính toán snapshot chỉ báo theo đúng khung thời gian client đang xem
+          const clientTf = meta?.timeframe || 'M1';
+          const clientIndicators = marketData.getIndicators(tick.symbol, clientTf);
+
           client.send(JSON.stringify({
             type: 'TICK',
             data: {
               tick,
-              indicators: snap,
+              indicators: clientIndicators,
               account: userAccount,
               openOrders: userOpenOrders
             }
@@ -111,6 +114,17 @@ export class WebSocketHub {
       this.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           const meta = this.clientMeta.get(client);
+
+          // Nếu là tin nhắn phân tích nến hoặc cảnh báo TopDown đỉnh đáy, chỉ gửi tới client đang xem đúng cặp & khung thời gian
+          if (msg.type === 'ANALYSIS' || msg.title?.includes('ĐỈNH') || msg.title?.includes('ĐÁY') || msg.title?.includes('Phân Tích')) {
+            if (msg.symbol && meta?.symbol && msg.symbol !== meta.symbol) {
+              return;
+            }
+            if (msg.data?.timeframe && meta?.timeframe && msg.data.timeframe !== meta.timeframe) {
+              return;
+            }
+          }
+
           // If message belongs to a specific user, deliver only to that user's client(s)
           if (msg.userId) {
             if (meta?.userId === msg.userId) {

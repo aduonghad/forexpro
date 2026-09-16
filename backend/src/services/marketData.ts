@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import fs from 'fs';
+import path from 'path';
 import { CONFIG } from '../config.js';
 import { Candle, TradingSymbol, Timeframe } from '../types/index.js';
 import { IndicatorService } from './indicators.js';
@@ -12,6 +14,18 @@ export interface TickData {
   candle: Candle;
 }
 
+function getCacheFilePath(): string {
+  const candidate1 = path.resolve(process.cwd(), 'data');
+  const candidate2 = path.resolve(process.cwd(), 'backend/data');
+  const targetDir = fs.existsSync(path.resolve(process.cwd(), 'backend')) ? candidate2 : candidate1;
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch {}
+  }
+  return path.join(targetDir, 'candles_cache.json');
+}
+
 export class MarketDataService extends EventEmitter {
   private candles: Map<string, Candle[]> = new Map(); // key: `${symbol}_${timeframe}`
   private currentPrices: Map<TradingSymbol, { bid: number; ask: number; lastPrice: number }> = new Map();
@@ -19,11 +33,84 @@ export class MarketDataService extends EventEmitter {
   private isMT5Connected: boolean = false;
   private lastMT5TickTime: number = 0;
   private mt5Symbols: Set<string> = new Set();
+  private hasReceivedMT5History: boolean = false;
+  private saveDebounceTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
     this.initHistoricalData();
     this.startLiveTickEngine();
+  }
+
+  public needsHistorySync(): boolean {
+    return !this.hasReceivedMT5History;
+  }
+
+  public markHistorySynced() {
+    this.hasReceivedMT5History = true;
+    this.saveCandlesCache();
+  }
+
+  public saveCandlesCache() {
+    if (this.saveDebounceTimer) return;
+    this.saveDebounceTimer = setTimeout(() => {
+      this.saveDebounceTimer = null;
+      try {
+        const filePath = getCacheFilePath();
+        const obj: Record<string, Candle[]> = {};
+        for (const [k, v] of this.candles.entries()) {
+          if (v && v.length > 0) {
+            obj[k] = v.slice(-300);
+          }
+        }
+        const data = {
+          updatedAt: Date.now(),
+          candles: obj
+        };
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (err) {
+        console.error('Lỗi khi lưu candles_cache.json:', err);
+      }
+    }, 1500);
+  }
+
+  private loadCandlesCache(): boolean {
+    try {
+      const filePath = getCacheFilePath();
+      if (!fs.existsSync(filePath)) return false;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.candles) return false;
+
+      let loadedCount = 0;
+      for (const [key, list] of Object.entries(parsed.candles)) {
+        if (Array.isArray(list) && list.length > 0) {
+          this.candles.set(key, list as Candle[]);
+          loadedCount++;
+
+          const [sym] = key.split('_');
+          const symbol = sym as TradingSymbol;
+          const spec = CONFIG.SYMBOLS[symbol];
+          const lastCandle = list[list.length - 1];
+          if (spec && lastCandle) {
+            const spread = spec.baseSpread;
+            this.currentPrices.set(symbol, {
+              bid: Number((lastCandle.close - spread / 2).toFixed(spec.digits)),
+              ask: Number((lastCandle.close + spread / 2).toFixed(spec.digits)),
+              lastPrice: lastCandle.close
+            });
+          }
+        }
+      }
+
+      if (loadedCount > 0) {
+        console.log(`📦 [MarketData] Đã nạp thành công ${loadedCount} chuỗi nến lịch sử từ candles_cache.json!`);
+        return true;
+      }
+    } catch (err) {
+      console.warn('Lỗi đọc candles_cache.json, dùng nến mô phỏng tạm:', err);
+    }
+    return false;
   }
 
   private getTimeframeSeconds(tf: Timeframe): number {
@@ -36,58 +123,125 @@ export class MarketDataService extends EventEmitter {
     }
   }
 
+  private generateRealisticCandles(
+    symbol: TradingSymbol,
+    tf: Timeframe,
+    targetBasePrice: number,
+    candleCount: number = 200,
+    currentCandlePeriod: number
+  ): Candle[] {
+    const spec = CONFIG.SYMBOLS[symbol];
+    const tfSec = this.getTimeframeSeconds(tf);
+    const tfMultiplier = Math.sqrt(tfSec / 60);
+    const baseVol = (spec.volatility || 1.0) * tfMultiplier;
+
+    let currentOpen = targetBasePrice;
+    const tempCandles: Candle[] = [];
+
+    let trendDirection = Math.random() < 0.5 ? 1 : -1;
+    let trendLength = Math.floor(Math.random() * 6 + 3);
+    let trendCounter = 0;
+
+    for (let i = 0; i < candleCount; i++) {
+      const candleTime = currentCandlePeriod - ((candleCount - 1 - i) * tfSec);
+
+      trendCounter++;
+      if (trendCounter >= trendLength) {
+        trendDirection = -trendDirection;
+        trendLength = Math.floor(Math.random() * 7 + 3);
+        trendCounter = 0;
+      }
+
+      // Thân nến theo xu hướng + nhiễu nhẹ
+      const trendDelta = trendDirection * (Math.random() * 0.5 + 0.2) * baseVol * 0.4;
+      const noiseDelta = (Math.random() - 0.5) * baseVol * 0.2;
+      const bodyDelta = trendDelta + noiseDelta;
+
+      const open = Number(currentOpen.toFixed(spec.digits));
+      const close = Number((open + bodyDelta).toFixed(spec.digits));
+      const bodySize = Math.max(Math.abs(close - open), spec.pipSize);
+
+      // Râu nến tự nhiên:
+      // - Phần lớn nến có râu ngắn (10-35% kích thước thân)
+      // - Thỉnh thoảng có nến rút râu 1 đầu (pinbar)
+      // - Không bị tình trạng 2 râu đối xứng dài ngoằng như răng cưa
+      const isPinBar = Math.random() < 0.12;
+      let upperWick = 0;
+      let lowerWick = 0;
+
+      if (isPinBar) {
+        if (Math.random() < 0.5) {
+          upperWick = (Math.random() * 1.2 + 0.6) * bodySize;
+          lowerWick = Math.random() * 0.15 * bodySize;
+        } else {
+          lowerWick = (Math.random() * 1.2 + 0.6) * bodySize;
+          upperWick = Math.random() * 0.15 * bodySize;
+        }
+      } else {
+        upperWick = (Math.random() * 0.35 + 0.05) * bodySize;
+        lowerWick = (Math.random() * 0.35 + 0.05) * bodySize;
+      }
+
+      const high = Number((Math.max(open, close) + upperWick).toFixed(spec.digits));
+      const low = Number((Math.min(open, close) - lowerWick).toFixed(spec.digits));
+      const volume = Math.floor(50 + Math.random() * 150);
+
+      tempCandles.push({
+        time: candleTime,
+        open,
+        high,
+        low,
+        close,
+        volume
+      });
+
+      currentOpen = close;
+    }
+
+    // Điều chỉnh nến cuối cùng để bám sát targetBasePrice
+    const diffToEnd = targetBasePrice - tempCandles[tempCandles.length - 1].close;
+    for (let i = 0; i < candleCount; i++) {
+      const ratio = (i + 1) / candleCount;
+      const shift = Number((diffToEnd * ratio).toFixed(spec.digits));
+      tempCandles[i].open = Number((tempCandles[i].open + shift).toFixed(spec.digits));
+      tempCandles[i].high = Number((tempCandles[i].high + shift).toFixed(spec.digits));
+      tempCandles[i].low = Number((tempCandles[i].low + shift).toFixed(spec.digits));
+      tempCandles[i].close = Number((tempCandles[i].close + shift).toFixed(spec.digits));
+    }
+
+    return tempCandles;
+  }
+
   private initHistoricalData() {
+    this.loadCandlesCache();
     const symbols = Object.keys(CONFIG.SYMBOLS) as TradingSymbol[];
     const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1'];
     const now = Math.floor(Date.now() / 1000);
 
     for (const symbol of symbols) {
       const spec = CONFIG.SYMBOLS[symbol];
-      let currentBasePrice = spec.initialPrice;
+      const targetBasePrice = spec.initialPrice;
 
       for (const tf of timeframes) {
+        const key = `${symbol}_${tf}`;
+        if (this.candles.has(key) && (this.candles.get(key)?.length || 0) > 0) {
+          continue;
+        }
+
         const tfSec = this.getTimeframeSeconds(tf);
         const candleCount = 200;
-        const candles: Candle[] = [];
+        const currentCandlePeriod = Math.floor(now / tfSec) * tfSec;
+        const candles = this.generateRealisticCandles(symbol, tf, targetBasePrice, candleCount, currentCandlePeriod);
 
-        // Generate synthetic past candles with realistic random walk & mean reversion
-        let p = currentBasePrice - (candleCount * 0.05 * spec.volatility);
-        const startTime = now - (candleCount * tfSec);
-
-        for (let i = 0; i < candleCount; i++) {
-          const candleTime = startTime + (i * tfSec);
-          const change = (Math.random() - 0.49) * spec.volatility * Math.sqrt(tfSec / 60);
-          const open = p;
-          const close = Number((p + change).toFixed(spec.digits));
-          const high = Number((Math.max(open, close) + Math.random() * spec.volatility * 0.5).toFixed(spec.digits));
-          const low = Number((Math.min(open, close) - Math.random() * spec.volatility * 0.5).toFixed(spec.digits));
-          const volume = Math.floor(50 + Math.random() * 200);
-
-          candles.push({
-            time: candleTime,
-            open,
-            high,
-            low,
-            close,
-            volume
-          });
-
-          p = close;
-        }
-
-        this.candles.set(`${symbol}_${tf}`, candles);
-
-        if (tf === 'M1') {
-          currentBasePrice = p;
-        }
+        this.candles.set(key, candles);
       }
 
-      // Initial bid / ask
+      // Khởi tạo bid / ask bám sát mốc giá chuẩn sàn Exness
       const spread = spec.baseSpread;
       this.currentPrices.set(symbol, {
-        bid: Number((currentBasePrice - spread / 2).toFixed(spec.digits)),
-        ask: Number((currentBasePrice + spread / 2).toFixed(spec.digits)),
-        lastPrice: currentBasePrice
+        bid: Number((targetBasePrice - spread / 2).toFixed(spec.digits)),
+        ask: Number((targetBasePrice + spread / 2).toFixed(spec.digits)),
+        lastPrice: targetBasePrice
       });
     }
   }
@@ -197,6 +351,8 @@ export class MarketDataService extends EventEmitter {
     this.isMT5Connected = true;
     this.lastMT5TickTime = Date.now();
     this.mt5Symbols.add(symbol);
+    this.hasReceivedMT5History = true;
+    this.saveCandlesCache();
 
     // Cập nhật giá hiện tại từ nến cuối cùng
     const lastBar = valid[valid.length - 1];
@@ -241,30 +397,19 @@ export class MarketDataService extends EventEmitter {
       lastPrice: data.bid
     });
 
-    // Kiểm tra nếu nến hiện tại trong bộ nhớ có giá bị lệch quá xa so với giá thật MT5 (do nến mô phỏng cũ)
+    // Kiểm tra nếu nến hiện tại trong bộ nhớ có giá bị lệch so với giá thật MT5 (do nến mô phỏng cũ)
     const timeframes: Timeframe[] = ['M1', 'M5', 'M15', 'H1'];
     for (const tf of timeframes) {
       const key = `${data.symbol}_${tf}`;
       const list = this.candles.get(key) || [];
       if (list.length > 0) {
         const firstCandle = list[0];
-        // Nếu giá nến cũ lệch hơn 5% so với giá thật từ MT5
-        if (Math.abs(firstCandle.close - data.bid) / data.bid > 0.05) {
+        const priceDiff = Math.abs(firstCandle.close - data.bid);
+        // Nếu giá nến cũ lệch hơn 15 pips hoặc 0.5% so với giá thật từ MT5 -> Tạo lại lịch sử bám sát giá thật
+        if (priceDiff > spec.pipSize * 15 || (priceDiff / data.bid > 0.005)) {
           const tfSec = this.getTimeframeSeconds(tf);
-          const newHistory: Candle[] = [];
-          const count = 200;
-          const startTime = nowSec - count * tfSec;
-          let p = data.bid;
-          for (let i = 0; i < count; i++) {
-            const candleTime = startTime + i * tfSec;
-            const delta = (Math.sin(i / 10) * 0.2 + (Math.random() - 0.5) * 0.3) * (spec.volatility || 0.5);
-            const close = Number((p + delta).toFixed(spec.digits));
-            const open = p;
-            const high = Number((Math.max(open, close) + Math.random() * 0.2).toFixed(spec.digits));
-            const low = Number((Math.min(open, close) - Math.random() * 0.2).toFixed(spec.digits));
-            newHistory.push({ time: candleTime, open, high, low, close, volume: 50 });
-            p = close;
-          }
+          const currentCandlePeriod = Math.floor(nowSec / tfSec) * tfSec;
+          const newHistory = this.generateRealisticCandles(data.symbol, tf, data.bid, 200, currentCandlePeriod);
           this.candles.set(key, newHistory);
           this.emit('candlesUpdated', { symbol: data.symbol, timeframe: tf, candles: newHistory });
         }
@@ -291,6 +436,7 @@ export class MarketDataService extends EventEmitter {
             closedCandle: { ...last },
             newCandle: data.candle
           });
+          this.saveCandlesCache();
         }
       }
     } else {
@@ -323,6 +469,7 @@ export class MarketDataService extends EventEmitter {
             closedCandle: { ...lastCandle },
             newCandle
           });
+          this.saveCandlesCache();
         }
       }
     }

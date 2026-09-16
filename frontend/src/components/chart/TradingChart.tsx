@@ -527,10 +527,21 @@ export const TradingChart: React.FC<TradingChartProps> = ({
         vertLine: { color: '#06b6d4', width: 1, style: 3 },
         horzLine: { color: '#06b6d4', width: 1, style: 3 },
       },
+      localization: {
+        timeFormatter: (timestamp: number) => {
+          const date = new Date(timestamp * 1000);
+          return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        },
+        dateFormat: 'yyyy-MM-dd',
+      },
       timeScale: {
         borderColor: '#334155',
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (time: number) => {
+          const date = new Date(time * 1000);
+          return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        },
       },
       rightPriceScale: {
         borderColor: '#334155',
@@ -538,24 +549,11 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       },
     });
 
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#f43f5e',
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
-    });
-
-    const ema20Series = chart.addLineSeries({
-      color: '#f59e0b', // Amber
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-
-    const ema50Series = chart.addLineSeries({
-      color: '#a855f7', // Purple
-      lineWidth: 2,
+    // 1. Thêm các đường chỉ báo trước để nằm ở lớp dưới (Underneath layers)
+    const waveLineSeries = chart.addLineSeries({
+      color: '#38bdf8', // Sky Cyan
+      lineWidth: 1, // Nhỏ và thanh mảnh giống râu nến (1px)
+      lineStyle: 0, // Nét liền (Solid)
       priceLineVisible: false,
       lastValueVisible: false,
     });
@@ -576,12 +574,27 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       lastValueVisible: false,
     });
 
-    const waveLineSeries = chart.addLineSeries({
-      color: '#38bdf8', // Sky Cyan
-      lineWidth: 2,
-      lineStyle: 2, // Dashed
+    const ema50Series = chart.addLineSeries({
+      color: '#a855f7', // Purple
+      lineWidth: 1, // Mảnh thanh lịch (1px)
       priceLineVisible: false,
       lastValueVisible: false,
+    });
+
+    const ema20Series = chart.addLineSeries({
+      color: '#f59e0b', // Amber
+      lineWidth: 1, // Mảnh thanh lịch (1px)
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    // 2. Thêm nến sau cùng để thân và râu nến luôn nổi lên lớp trên cùng (Top layer)
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#10b981',
+      downColor: '#f43f5e',
+      borderVisible: false,
+      wickUpColor: '#10b981',
+      wickDownColor: '#f43f5e',
     });
 
     const countdownPrimitive = new CountdownPrimitive();

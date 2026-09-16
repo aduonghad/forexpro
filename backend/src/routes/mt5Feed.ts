@@ -89,7 +89,10 @@ router.post('/tick', verifySecret, (req: Request, res: Response) => {
       candle
     });
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      needHistory: marketData.needsHistorySync()
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

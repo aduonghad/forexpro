@@ -43,8 +43,8 @@ export const CONFIG = {
       pipValuePerLot: 10.0, // 100 oz contract
       digits: 2,
       baseSpread: 0.12,
-      initialPrice: 4325.0,
-      volatility: 0.8,
+      initialPrice: 2658.50,
+      volatility: 1.5,
     },
     EURUSD: {
       name: 'Euro / Đô la Mỹ',
@@ -52,8 +52,8 @@ export const CONFIG = {
       pipValuePerLot: 10.0, // 100,000 contract
       digits: 5,
       baseSpread: 0.00008,
-      initialPrice: 1.08520,
-      volatility: 0.00025,
+      initialPrice: 1.08650,
+      volatility: 0.0003,
     },
     GBPUSD: {
       name: 'Bảng Anh / Đô la Mỹ',
@@ -61,8 +61,8 @@ export const CONFIG = {
       pipValuePerLot: 10.0,
       digits: 5,
       baseSpread: 0.00012,
-      initialPrice: 1.27430,
-      volatility: 0.00035,
+      initialPrice: 1.29450,
+      volatility: 0.0004,
     },
     USDJPY: {
       name: 'Đô la Mỹ / Yên Nhật',
@@ -70,8 +70,8 @@ export const CONFIG = {
       pipValuePerLot: 6.8,
       digits: 3,
       baseSpread: 0.015,
-      initialPrice: 154.650,
-      volatility: 0.06,
+      initialPrice: 153.800,
+      volatility: 0.08,
     },
     BTCUSD: {
       name: 'Bitcoin / Đô la Mỹ',
@@ -79,8 +79,8 @@ export const CONFIG = {
       pipValuePerLot: 1.0,
       digits: 2,
       baseSpread: 12.0,
-      initialPrice: 68450.0,
-      volatility: 35.0,
+      initialPrice: 68500.0,
+      volatility: 80.0,
     }
   } as Record<TradingSymbol, {
     name: string;

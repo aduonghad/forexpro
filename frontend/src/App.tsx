@@ -137,7 +137,7 @@ export const App: React.FC = () => {
     loadCandles(symbol, timeframe);
   }, [symbol, timeframe, loadCandles]);
 
-  // Load rules and messages specifically for current user
+  // Load rules, messages, open positions, and account info specifically for current user
   useEffect(() => {
     api.getRules().then(data => {
       if (Array.isArray(data)) setRules(data);
@@ -146,6 +146,14 @@ export const App: React.FC = () => {
     api.getBotMessages(100).then(msgs => {
       if (Array.isArray(msgs)) setMessages(msgs);
     }).catch(err => console.warn('Lỗi tải tin nhắn bot:', err));
+
+    api.getOpenOrders().then(openOrders => {
+      if (Array.isArray(openOrders)) setOrders(openOrders);
+    }).catch(err => console.warn('Lỗi tải vị thế mở:', err));
+
+    api.getAccount().then(acc => {
+      if (acc) setAccount(acc);
+    }).catch(err => console.warn('Lỗi tải thông tin tài khoản:', err));
   }, [user?.id]);
 
   // Sync active symbol & timeframe with backend & WebSocket hub
@@ -204,19 +212,37 @@ export const App: React.FC = () => {
           setIndicators(data.indicators);
         }
 
-        // Realtime update last candle or append new candle
-        if (data.tick.candle) {
-          setCandles(prev => {
-            if (prev.length === 0) return [data.tick.candle];
-            const last = prev[prev.length - 1];
-            if (last.time === data.tick.candle.time) {
-              return [...prev.slice(0, -1), data.tick.candle];
-            } else if (data.tick.candle.time > last.time) {
-              return [...prev.slice(-250), data.tick.candle];
-            }
-            return prev;
-          });
-        }
+        // Realtime update last candle or append new candle theo đúng khung thời gian đang chọn
+        const tfSec = timeframe === 'M1' ? 60 : timeframe === 'M5' ? 300 : timeframe === 'M15' ? 900 : 3600;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const candlePeriod = Math.floor(nowSec / tfSec) * tfSec;
+        const curPrice = data.tick.bid;
+
+        setCandles(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          if (last.time === candlePeriod) {
+            const updated: Candle = {
+              ...last,
+              close: curPrice,
+              high: Math.max(last.high, curPrice),
+              low: Math.min(last.low, curPrice),
+              volume: (last.volume || 1) + 1
+            };
+            return [...prev.slice(0, -1), updated];
+          } else if (candlePeriod > last.time) {
+            const newCandle: Candle = {
+              time: candlePeriod,
+              open: last.close,
+              high: Math.max(last.close, curPrice),
+              low: Math.min(last.close, curPrice),
+              close: curPrice,
+              volume: 1
+            };
+            return [...prev.slice(-250), newCandle];
+          }
+          return prev;
+        });
       }
     });
 

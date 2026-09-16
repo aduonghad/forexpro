@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "ForexPro Automated Trader"
 #property link      "http://127.0.0.1:3001"
-#property version   "1.00"
+#property version   "1.10"
 #property description "EA phát trực tiếp nến & tick từ MT5 Exness về Web App ForexPro qua WebRequest"
 #property strict
 
@@ -13,8 +13,8 @@
 input group "=== Cấu hình Máy Chủ Web App ==="
 input string   InpServerUrl       = "http://127.0.0.1:3001"; // Địa chỉ Backend ForexPro
 input string   InpSecretToken     = "exness-pro-secret-2026"; // Mã bảo mật Webhook/API
-input int      InpSendIntervalMs  = 300;                     // Chu kỳ gửi tick tối thiểu (ms)
-input int      InpHistoryBars     = 300;                     // Số nến lịch sử gửi ban đầu
+input int      InpSendIntervalMs  = 500;                     // Chu kỳ gửi tick tối thiểu (ms)
+input int      InpHistoryBars     = 150;                     // Số nến lịch sử gửi ban đầu
 
 input group "=== Cặp Tiền Giám Sát ==="
 input bool     InpSendAllSymbols  = true;                    // Gửi tất cả 5 cặp chính
@@ -25,6 +25,11 @@ ulong  g_lastSendTickTime = 0;
 bool   g_historySent = false;
 string g_symbols[];
 int    g_symbolCount = 0;
+ulong  g_lastStatusPrint = 0;
+bool   g_connectedLogged = false;
+
+// Khai báo trước hàm đồng bộ nến lịch sử
+void SyncHistory();
 
 //+------------------------------------------------------------------+
 //| Cắt chuỗi danh sách cặp tiền thành mảng                          |
@@ -52,6 +57,12 @@ void ParseSymbols()
          StringToUpper(g_symbols[i]);
       }
    }
+
+   // Đảm bảo tất cả cặp tiền được chọn trong Market Watch
+   for(int i = 0; i < g_symbolCount; i++)
+   {
+      SymbolSelect(g_symbols[i], true);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -67,7 +78,6 @@ bool SendHttpRequest(string endpoint, string jsonPayload)
    string resultHeaders;
    
    StringToCharArray(jsonPayload, postData, 0, WHOLE_ARRAY, CP_UTF8);
-   // Bỏ ký tự null cuối chuỗi nếu có
    int dataLen = ArraySize(postData);
    if(dataLen > 0 && postData[dataLen - 1] == 0)
    {
@@ -83,7 +93,7 @@ bool SendHttpRequest(string endpoint, string jsonPayload)
       if(err == 4014) // ERR_FUNCTION_NOT_ALLOWED
       {
          Print("❌ LỖI 4014: Chưa bật WebRequest cho URL: ", InpServerUrl);
-         Print("👉 Vào Tools -> Options -> Expert Advisors -> Tích 'Allow WebRequest for listed URL' -> Thêm: ", InpServerUrl);
+         Print("👉 Vào Tools -> Options -> Expert Advisors -> Tích 'Allow WebRequest for listed URL' -> Thêm chính xác: ", InpServerUrl);
       }
       else
       {
@@ -91,6 +101,30 @@ bool SendHttpRequest(string endpoint, string jsonPayload)
       }
       return false;
    }
+
+   if(!g_connectedLogged && res >= 200 && res < 300)
+   {
+      g_connectedLogged = true;
+      Print("🎉 [ForexPro MT5 Bridge] Đã kết nối và truyền dữ liệu thành công tới: ", InpServerUrl);
+   }
+
+   // Tự động kiểm tra Handshake: Nếu server vừa restart và yêu cầu nạp lại nến lịch sử
+   if(endpoint == "/api/mt5/tick" && res >= 200 && res < 300 && ArraySize(result) > 0)
+   {
+      string respStr = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+      if(StringFind(respStr, "\"needHistory\":true") >= 0 || StringFind(respStr, "\"needHistory\": true") >= 0)
+      {
+         static ulong s_lastAutoSyncTime = 0;
+         ulong nowMs = GetTickCount64();
+         if(nowMs - s_lastAutoSyncTime > 10000)
+         {
+            s_lastAutoSyncTime = nowMs;
+            Print("🔄 [ForexPro MT5 Bridge] Server Web App vừa mở lại, đang tự động nạp nến lịch sử sang server...");
+            SyncHistory();
+         }
+      }
+   }
+
    return (res >= 200 && res < 300);
 }
 
@@ -114,22 +148,16 @@ string TimeframeToString(ENUM_TIMEFRAMES tf)
 //+------------------------------------------------------------------+
 bool SendCandleHistory(string symbol, ENUM_TIMEFRAMES tf)
 {
+   SymbolSelect(symbol, true);
+
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
    
    int copied = CopyRates(symbol, tf, 0, InpHistoryBars, rates);
    if(copied <= 0)
    {
-      // Có thể symbol trên MT5 có đuôi sàn như XAUUSDm, EURUSDm
-      string cleanSym = symbol;
-      if(!SymbolSelect(cleanSym, true))
-      {
-         return false;
-      }
-      copied = CopyRates(cleanSym, tf, 0, InpHistoryBars, rates);
+      return false;
    }
-   
-   if(copied <= 0) return false;
 
    string tfStr = TimeframeToString(tf);
    string json = "{\"symbol\":\"" + symbol + "\",\"timeframe\":\"" + tfStr + "\",\"candles\":[";
@@ -159,6 +187,8 @@ bool SendCandleHistory(string symbol, ENUM_TIMEFRAMES tf)
 //+------------------------------------------------------------------+
 void SendLiveTick(string symbol)
 {
+   SymbolSelect(symbol, true);
+
    MqlTick lastTick;
    if(!SymbolInfoTick(symbol, lastTick)) return;
 
@@ -197,18 +227,53 @@ void SendLiveTick(string symbol)
 }
 
 //+------------------------------------------------------------------+
+//| Đồng bộ nến lịch sử sang Web App                                 |
+//+------------------------------------------------------------------+
+void SyncHistory()
+{
+   Print("📦 [ForexPro MT5 Bridge] Bắt đầu đồng bộ nến lịch sử sang Web App...");
+   ENUM_TIMEFRAMES tfs[] = { PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1 };
+   
+   bool okChart = true;
+   for(int t = 0; t < ArraySize(tfs); t++)
+   {
+      if(!SendCandleHistory(_Symbol, tfs[t])) okChart = false;
+   }
+
+   for(int s = 0; s < g_symbolCount; s++)
+   {
+      string sym = g_symbols[s];
+      if(sym == _Symbol) continue;
+      for(int t = 0; t < ArraySize(tfs); t++)
+      {
+         SendCandleHistory(sym, tfs[t]);
+      }
+   }
+
+   if(okChart)
+   {
+      g_historySent = true;
+      Print("✅ [ForexPro MT5 Bridge] Hoàn tất nạp nến lịch sử Exness sang Web App!");
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Khởi tạo EA                                                      |
 //+------------------------------------------------------------------+
 int OnInit()
 {
    ParseSymbols();
    g_historySent = false;
-   Print("🚀 [ForexPro MT5 Bridge] Đang khởi động...");
-   Print("📡 Kết nối tới: ", InpServerUrl);
-   Print("📊 Số cặp theo dõi: ", g_symbolCount);
+   g_connectedLogged = false;
+   g_lastStatusPrint = 0;
 
-   // Thiết lập bộ đếm thời gian 300ms
-   EventSetMillisecondTimer(InpSendIntervalMs);
+   Print("🚀 [ForexPro MT5 Bridge v1.10] Đang khởi động...");
+   Print("📡 Kết nối tới: ", InpServerUrl);
+   Print("📊 Số cặp theo dõi: ", g_symbolCount, " (", _Symbol, ")");
+
+   // Hủy timer cũ và tạo timer 1 giây (đảm bảo 100% chạy mượt trên cả macOS Wine & Windows)
+   EventKillTimer();
+   EventSetTimer(1);
    
    return(INIT_SUCCEEDED);
 }
@@ -227,53 +292,47 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Đồng bộ nến lịch sử nếu chưa gửi
+   if(!g_historySent)
+   {
+      SyncHistory();
+   }
+
    ulong now = GetTickCount64();
    if(now - g_lastSendTickTime < (ulong)InpSendIntervalMs) return;
    g_lastSendTickTime = now;
 
    // Gửi tick của cặp tiền trên chart hiện tại
-   string currentSym = _Symbol;
-   SendLiveTick(currentSym);
+   SendLiveTick(_Symbol);
 }
 
 //+------------------------------------------------------------------+
-//| Sự kiện Bộ đếm thời gian (Timer)                                 |
+//| Sự kiện Bộ đếm thời gian (Timer) - Chạy định kỳ 1 giây           |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   // 1. Gửi lịch sử nến ban đầu cho các cặp tiền nếu chưa gửi
+   // 1. Đồng bộ lịch sử nến nếu chưa gửi
    if(!g_historySent)
    {
-      Print("📦 [ForexPro MT5 Bridge] Đang đồng bộ nến lịch sử sang Web App...");
-      ENUM_TIMEFRAMES tfs[] = { PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1 };
-      
-      bool okChart = true;
-      for(int t = 0; t < ArraySize(tfs); t++)
-      {
-         if(!SendCandleHistory(_Symbol, tfs[t])) okChart = false;
-      }
-
-      for(int s = 0; s < g_symbolCount; s++)
-      {
-         string sym = g_symbols[s];
-         if(sym == _Symbol) continue;
-         for(int t = 0; t < ArraySize(tfs); t++)
-         {
-            SendCandleHistory(sym, tfs[t]);
-         }
-      }
-
-      if(okChart)
-      {
-         g_historySent = true;
-         Print("✅ [ForexPro MT5 Bridge] Hoàn tất nạp nến lịch sử Exness!");
-      }
+      SyncHistory();
    }
 
    // 2. Gửi tick định kỳ cho tất cả các cặp tiền đã cấu hình
    for(int s = 0; s < g_symbolCount; s++)
    {
       SendLiveTick(g_symbols[s]);
+   }
+
+   // 3. Log trạng thái mỗi 10 giây trên MT5 Experts
+   ulong now = GetTickCount64();
+   if(now - g_lastStatusPrint > 10000)
+   {
+      g_lastStatusPrint = now;
+      MqlTick tick;
+      if(SymbolInfoTick(_Symbol, tick))
+      {
+         Print("🟢 [ForexPro MT5 Bridge] Đang phát trực tiếp: ", _Symbol, " Bid=", tick.bid, " Ask=", tick.ask);
+      }
    }
 }
 //+------------------------------------------------------------------+

@@ -332,10 +332,12 @@ export class BotEngineService extends EventEmitter {
   private startPeriodicAnalysis() {
     if (this.analysisTimer) return;
 
-    // Send technical analysis insight every 60 seconds
+    // Send technical analysis insight every 60 seconds (chỉ khi đang chọn M1, các khung M5, M15, H1 sẽ phân tích khi nến đóng)
     this.analysisTimer = setInterval(() => {
       if (!this.analysisAlertsActive) return;
-      this.generatePeriodicAnalysis();
+      if (this.activeTimeframe === 'M1') {
+        this.generatePeriodicAnalysis();
+      }
     }, 60000);
   }
 
@@ -792,6 +794,11 @@ Tin nhắn: "${payload.message || 'Tín hiệu tự động từ TradingView Ale
   async handleCandleClosedAnalysis(symbol: TradingSymbol, timeframe: Timeframe, closedCandle: Candle) {
     if (!this.analysisAlertsActive) return;
 
+    // Chỉ phân tích và gửi thông báo cho ĐÚNG cặp giao dịch và khung thời gian đang được chọn trên giao diện
+    if (symbol !== this.activeSymbol || timeframe !== this.activeTimeframe) {
+      return;
+    }
+
     // 1. Identify active viewers watching this symbol & timeframe from wsHub
     let activeViewers: string[] = [];
     try {
@@ -902,6 +909,11 @@ ${patternSection ? patternSection + '\n' : ''}• Giá đóng nến: ${closePric
 
     const symbol = targetSymbol || this.activeSymbol;
     const timeframe = targetTimeframe || this.activeTimeframe;
+
+    // Chỉ phân tích và gửi thông báo cho ĐÚNG cặp giao dịch và khung thời gian đang được chọn trên giao diện
+    if (symbol !== this.activeSymbol || timeframe !== this.activeTimeframe) {
+      return;
+    }
 
     let activeViewers: string[] = [];
     try {

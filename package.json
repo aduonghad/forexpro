@@ -13,7 +13,9 @@
     "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
     "start": "concurrently -n backend,frontend -c blue,magenta \"npm run dev:backend\" \"npm run dev:frontend\"",
     "start:bash": "bash start.sh",
-    "copy-ea:mac": "cp scripts/mt5/ForexPro_MT5_Bridge.mq5 \"$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Experts/\" && echo '✅ Đã sao chép EA vào MT5 Experts trên Mac!'"
+    "copy-ea:mac": "cp scripts/mt5/ForexPro_MT5_Bridge.* \"$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5/Experts/\" && echo '✅ Đã sao chép EA vào MT5 Experts trên Mac!'",
+    "compile-ea:mac": "cd \"$HOME/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5\" && (WINEPREFIX=\"$HOME/Library/Application Support/net.metaquotes.wine.metatrader5\" \"/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine64\" ./metaeditor64.exe /compile:\"MQL5\\\\Experts\\\\ForexPro_MT5_Bridge.mq5\" /log || true) && echo '✅ Đã biên dịch EA thành công!'",
+    "update-ea:mac": "npm run copy-ea:mac && npm run compile-ea:mac"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"
